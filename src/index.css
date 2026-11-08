@@ -1,0 +1,39 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    html {
+        scroll-behavior: smooth;
+    }
+
+    body {
+        @apply font-sans bg-white text-slate-800 antialiased selection:bg-primary/15 selection:text-primary;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+        @apply font-heading tracking-tight text-slate-900;
+    }
+}
+
+@layer components {
+    .btn-primary {
+        @apply inline-flex items-center justify-center gap-2 bg-primary text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 hover:bg-primary-hover focus:ring-2 focus:ring-primary/20 active:scale-[0.99];
+    }
+
+    .btn-outline {
+        @apply inline-flex items-center justify-center gap-2 bg-white text-slate-700 border border-slate-200 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 hover:bg-slate-50 hover:border-slate-300 active:scale-[0.99];
+    }
+
+    .card-surface {
+        @apply bg-white rounded-xl border border-slate-200/80 shadow-card transition-all duration-200;
+    }
+}
+
+@layer utilities {
+    .tabular-nums {
+        font-variant-numeric: tabular-nums;
+    }
+}
