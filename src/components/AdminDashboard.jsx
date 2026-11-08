@@ -36,7 +36,10 @@ import {
     XMarkIcon,
     CheckCircleIcon,
     BellAlertIcon,
-    ArrowUpTrayIcon
+    ArrowUpTrayIcon,
+    SparklesIcon,
+    ExclamationTriangleIcon,
+    DocumentMagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
 
 ChartJS.register(
@@ -62,21 +65,179 @@ const DEFAULT_ADMIN_ACCOUNTS = [
     }
 ];
 
+/**
+ * AI Engine untuk menyelidiki apakah anak layak diadopsi secara legal (PP 54/2007)
+ * atau dialihkan ke Program Orang Tua Asuh (Foster Care) / Pembinaan Asrama.
+ */
+function evaluateChildAdoptionAI(child) {
+    let score = 50;
+    const findings = [];
+    const age = Number(child.usia || 10);
+    const kategori = child.kategori || 'Yatim';
+    const wali = child.statusWali || 'Masih Ada Wali / Kerabat';
+    const dokumen = child.dokumenHukum || 'Sebagian (KK / Akta)';
+    const psikologis = child.kondisiPsikologis || 'Stabil & Siap Adaptasi';
+    const riwayatLatar =
+        child.latarBelakang ||
+        'Anak masuk ke panti karena keterbatasan ekonomi keluarga dan membutuhkan jaminan pendidikan.';
+
+    // 1. Analisis Status Wali & Nasab Keluarga
+    if (kategori === 'Yatim Piatu' && wali.includes('Tanpa Wali')) {
+        score += 30;
+        findings.push(
+            'Status Yatim Piatu tanpa wali kerabat aktif: Memenuhi syarat prioritas perlindungan keluarga pengganti (COTA).'
+        );
+    } else if (kategori === 'Yatim Piatu') {
+        score += 15;
+        findings.push(
+            'Status Yatim Piatu namun masih tercatat memiliki kerabat jauh: Memerlukan surat persetujuan pelepasan wali sebelum adopsi.'
+        );
+    } else if (kategori === 'Dhuafa' || wali.includes('Orang Tua Kandung')) {
+        score -= 35;
+        findings.push(
+            'Masih memiliki orang tua/wali kandung: Berdasarkan PP 54/2007 & perlindungan nasab, tidak direkomendasikan putus hubungan keluarga (adopsi), melainkan lewat skema Orang Tua Asuh (Beasiswa).'
+        );
+    } else {
+        score -= 15;
+        findings.push(
+            `Kategori ${kategori} (${wali}): Masih memiliki ikatan keluarga kandung yang sah.`
+        );
+    }
+
+    // 2. Analisis Usia Anak (PP No. 54 Tahun 2007: Prioritas < 6 thn, 6-12 thn, > 12 thn)
+    if (age <= 6) {
+        score += 20;
+        findings.push(
+            `Usia ${age} tahun (Balita/Anak Dini): Sangat ideal untuk adaptasi psikologis pengangkatan anak resmi.`
+        );
+    } else if (age <= 12) {
+        score += 10;
+        findings.push(
+            `Usia ${age} tahun (Usia Sekolah Dasar): Memenuhi kriteria adopsi dengan pendampingan Pekerja Sosial.`
+        );
+    } else {
+        score -= 20;
+        findings.push(
+            `Usia ${age} tahun (Remaja SMP/SMA): Anak sudah mandiri di asrama, lebih tepat difokuskan pada Beasiswa Pendidikan & Tahfidz daripada adopsi.`
+        );
+    }
+
+    // 3. Analisis Dokumen Hukum & Berita Acara Dinsos
+    if (dokumen.includes('Lengkap')) {
+        score += 15;
+        findings.push(
+            'Dokumen Hukum Lengkap (Akta Kelahiran, Berita Acara Dinsos & Surat Penyerahan Resmi tersedia).'
+        );
+    } else if (dokumen.includes('Belum') || dokumen.includes('Sengketa')) {
+        score -= 30;
+        findings.push(
+            'Dokumen Hukum Belum Lengkap / Dalam Penelusuran Keluarga: Secara legal belum dapat diajukan ke Sidang PIPA Dinsos.'
+        );
+    } else {
+        findings.push(
+            'Dokumen Administrasi Dasar tersedia (KK/Akta), namun belum ada Berita Acara Pelepasan Wali untuk adopsi pengadilan.'
+        );
+    }
+
+    // 4. Analisis Psikologis & Kesiapan Emosi
+    if (psikologis.includes('Stabil')) {
+        score += 10;
+        findings.push('Asesmen Psikologis: Emosi anak stabil dan terbuka terhadap lingkungan keluarga baru.');
+    } else if (psikologis.includes('Trauma') || psikologis.includes('Konseling')) {
+        score -= 25;
+        findings.push(
+            'Asesmen Psikologis: Anak masih dalam tahap pemulihan trauma/konseling, wajib tetap dalam pengawasan pengasuh asrama.'
+        );
+    } else {
+        score -= 10;
+        findings.push(
+            'Asesmen Psikologis: Anak lebih nyaman tinggal bersama teman sebaya di asrama panti.'
+        );
+    }
+
+    const finalScore = Math.max(5, Math.min(98, score));
+
+    let verdict = 'TIDAK LAYAK ADOPSI (FOKUS ASRAMA)';
+    let badgeColor = 'bg-red-50 text-red-700 border-red-200';
+    let recommendation =
+        'Anak wajib tetap diasuh di dalam asrama Panti Asuhan As-Sholihin dan tidak dibuka untuk pengajuan adopsi COTA.';
+
+    if (finalScore >= 75) {
+        verdict = 'LAYAK DIADOPSI (REKOMENDASI COTA)';
+        badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        recommendation =
+            'Memenuhi syarat kelayakan PP No. 54/2007. Dapat dilanjutkan ke tahap verifikasi Calon Orang Tua Angkat (COTA), Home Visit Pekerja Sosial, dan Sidang Tim PIPA Dinsos.';
+    } else if (finalScore >= 45) {
+        verdict = 'DIALIHKAN KE ORANG TUA ASUH (FOSTER)';
+        badgeColor = 'bg-amber-50 text-amber-800 border-amber-200';
+        recommendation =
+            'Tidak direkomendasikan untuk adopsi putus wali. Sangat direkomendasikan untuk Program Orang Tua Asuh (Kafalah SPP & Biaya Hidup Bulanan).';
+    }
+
+    return {
+        score: finalScore,
+        verdict,
+        badgeColor,
+        recommendation,
+        findings,
+        riwayatLatar
+    };
+}
+
 const DEFAULT_ANAK_ASUH = [
     {
         id: 1,
+        nama: 'Rayhan Al-Fathir',
+        jk: 'Laki-laki',
+        usia: 5,
+        kategori: 'Yatim Piatu',
+        jenjang: 'TK Nol Besar',
+        sekolah: 'RA Muslimat Candimulyo',
+        hafalan: 'Surat Pendek Juz 30',
+        kesehatan: 'Sehat Baik',
+        statusMukim: 'Mukim Asrama',
+        statusWali: 'Tanpa Wali / Terlantar',
+        dokumenHukum: 'Lengkap (Akta + Berita Acara Dinsos)',
+        kondisiPsikologis: 'Stabil & Siap Adaptasi',
+        latarBelakang:
+            'Kedua orang tua wafat saat anak berusia 2 tahun dan tidak memiliki kerabat dekat yang sanggup mengasuh. Diserahkan resmi melalui pengawasan Dinas Sosial.'
+    },
+    {
+        id: 2,
+        nama: 'Alya Zahra Putri',
+        jk: 'Perempuan',
+        usia: 6,
+        kategori: 'Yatim Piatu',
+        jenjang: 'SD Kelas 1',
+        sekolah: 'MI As-Sholihin',
+        hafalan: 'Juz 30',
+        kesehatan: 'Sehat Baik',
+        statusMukim: 'Mukim Asrama',
+        statusWali: 'Tanpa Wali / Terlantar',
+        dokumenHukum: 'Lengkap (Akta + Berita Acara Dinsos)',
+        kondisiPsikologis: 'Stabil & Siap Adaptasi',
+        latarBelakang:
+            'Yatim piatu penuh tanpa tanggungan keluarga. Memiliki perkembangan kognitif dan sosial yang sangat baik serta siap mendapatkan keluarga angkat.'
+    },
+    {
+        id: 3,
         nama: 'Ahmad Fauzi',
         jk: 'Laki-laki',
         usia: 14,
-        kategori: 'Yatim Piatu',
+        kategori: 'Yatim',
         jenjang: 'SMP Kelas 8',
         sekolah: 'MTsN Candimulyo Jombang',
         hafalan: '4 Juz (Juz 27-30)',
         kesehatan: 'Sehat Baik',
-        statusMukim: 'Mukim Asrama'
+        statusMukim: 'Mukim Asrama',
+        statusWali: 'Masih Ada Ibu Kandung (Dhuafa)',
+        dokumenHukum: 'Sebagian (KK / Akta)',
+        kondisiPsikologis: 'Nyaman Bersama Teman Asrama',
+        latarBelakang:
+            'Ayah wafat, ibu kandung bekerja sebagai buruh tani di Jombang. Dititipkan di asrama untuk fokus pendidikan MTs dan tahfidz Al-Qur’an.'
     },
     {
-        id: 2,
+        id: 4,
         nama: 'Siti Aisyah',
         jk: 'Perempuan',
         usia: 11,
@@ -85,31 +246,12 @@ const DEFAULT_ANAK_ASUH = [
         sekolah: 'MI As-Sholihin',
         hafalan: '2 Juz (Juz 29-30)',
         kesehatan: 'Sehat Baik',
-        statusMukim: 'Mukim Asrama'
-    },
-    {
-        id: 3,
-        nama: 'Muhammad Rizky Pratama',
-        jk: 'Laki-laki',
-        usia: 16,
-        kategori: 'Yatim',
-        jenjang: 'SMA Kelas 11',
-        sekolah: 'MAN 1 Jombang',
-        hafalan: '6 Juz',
-        kesehatan: 'Sehat Baik',
-        statusMukim: 'Mukim Asrama'
-    },
-    {
-        id: 4,
-        nama: 'Nurul Hidayah',
-        jk: 'Perempuan',
-        usia: 13,
-        kategori: 'Piatu',
-        jenjang: 'SMP Kelas 7',
-        sekolah: 'SMP Islam Candimulyo',
-        hafalan: '3 Juz',
-        kesehatan: 'Sehat Baik',
-        statusMukim: 'Mukim Asrama'
+        statusMukim: 'Mukim Asrama',
+        statusWali: 'Masih Ada Wali / Kerabat',
+        dokumenHukum: 'Sebagian (KK / Akta)',
+        kondisiPsikologis: 'Stabil & Siap Adaptasi',
+        latarBelakang:
+            'Memiliki paman sebagai wali sah namun terkendala biaya hidup, sehingga membutuhkan dukungan beasiswa Orang Tua Asuh.'
     },
     {
         id: 5,
@@ -121,7 +263,12 @@ const DEFAULT_ANAK_ASUH = [
         sekolah: 'SDN Candimulyo 1',
         hafalan: 'Juz 30',
         kesehatan: 'Sehat Baik',
-        statusMukim: 'Non-Mukim (Binaan)'
+        statusMukim: 'Non-Mukim (Binaan)',
+        statusWali: 'Orang Tua Kandung Dhuafa Lengkap',
+        dokumenHukum: 'Belum Ada Pelepasan Wali',
+        kondisiPsikologis: 'Butuh Pendampingan Konseling',
+        latarBelakang:
+            'Berasal dari keluarga prasejahtera di sekitar panti. Tinggal bersama orang tua kandung dan menerima santunan beras serta SPP bulanan dari panti.'
     }
 ];
 
@@ -273,24 +420,25 @@ export default function AdminDashboard() {
     const [loginError, setLoginError] = useState('');
 
     // 2. Navigation & Notification State
-    const [activeMenu, setActiveMenu] = useState('overview'); // 'overview' | 'donations' | 'kas' | 'anak' | 'gallery' | 'laporan'
+    const [activeMenu, setActiveMenu] = useState('overview');
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
     const [notifications, setNotifications] = useState([]);
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
-    const [lastSeenNotifId, setLastSeenNotifId] = useState(() => localStorage.getItem('assholihin_last_notif_id') || '');
 
-    // 3. Data States (Persisted in localStorage & Synced with Public Landing Page)
+    // 3. Data States
     const [anakList, setAnakList] = useState(() => {
         try {
-            const raw = localStorage.getItem('assholihin_admin_anak');
+            const raw = localStorage.getItem('assholihin_admin_anak_v2');
             if (raw) return JSON.parse(raw);
-            localStorage.setItem('assholihin_admin_anak', JSON.stringify(DEFAULT_ANAK_ASUH));
+            localStorage.setItem('assholihin_admin_anak_v2', JSON.stringify(DEFAULT_ANAK_ASUH));
             return DEFAULT_ANAK_ASUH;
         } catch {
             return DEFAULT_ANAK_ASUH;
         }
     });
+
+    const [selectedAnakForAI, setSelectedAnakForAI] = useState(null);
 
     const [kasList, setKasList] = useState(() => {
         try {
@@ -327,19 +475,23 @@ export default function AdminDashboard() {
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('ALL');
 
-    // Form States for Modals / Inline Forms
+    // Form States
     const [showAnakForm, setShowAnakForm] = useState(false);
     const [editingAnakId, setEditingAnakId] = useState(null);
     const [anakForm, setAnakForm] = useState({
         nama: '',
         jk: 'Laki-laki',
-        usia: 12,
-        kategori: 'Yatim',
-        jenjang: 'SMP Kelas 7',
+        usia: 6,
+        kategori: 'Yatim Piatu',
+        jenjang: 'SD Kelas 1',
         sekolah: '',
         hafalan: 'Juz 30',
         kesehatan: 'Sehat Baik',
-        statusMukim: 'Mukim Asrama'
+        statusMukim: 'Mukim Asrama',
+        statusWali: 'Tanpa Wali / Terlantar',
+        dokumenHukum: 'Lengkap (Akta + Berita Acara Dinsos)',
+        kondisiPsikologis: 'Stabil & Siap Adaptasi',
+        latarBelakang: ''
     });
 
     const [showKasForm, setShowKasForm] = useState(false);
@@ -360,7 +512,7 @@ export default function AdminDashboard() {
         status: 'Berhasil (Settlement)'
     });
 
-    // Gallery CRUD State (Create, Edit, Upload File)
+    // Gallery CRUD State
     const [showGalleryForm, setShowGalleryForm] = useState(false);
     const [editingGalleryId, setEditingGalleryId] = useState(null);
     const [galleryForm, setGalleryForm] = useState({
@@ -376,8 +528,9 @@ export default function AdminDashboard() {
         setTimeout(() => setToastMessage(''), 4000);
     };
 
-    // Persist changes & broadcast to LandingPage
+    // Persist changes
     useEffect(() => {
+        localStorage.setItem('assholihin_admin_anak_v2', JSON.stringify(anakList));
         localStorage.setItem('assholihin_admin_anak', JSON.stringify(anakList));
         window.dispatchEvent(new Event('assholihin-data-updated'));
     }, [anakList]);
@@ -399,7 +552,6 @@ export default function AdminDashboard() {
             const saved = JSON.parse(localStorage.getItem('assholihin_donor_history') || '[]');
             const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
 
-            // 0. Scan seluruh donasi_meta_DONASI-* di localStorage
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
                 if (key && key.startsWith('donasi_meta_')) {
@@ -428,7 +580,6 @@ export default function AdminDashboard() {
                 }
             }
 
-            // 1. Ambil daftar order dari server (/api/orders yang otomatis cek ke Midtrans)
             try {
                 const res = await fetch(`${baseUrl}/orders?t=${Date.now()}`);
                 if (res.ok) {
@@ -465,7 +616,6 @@ export default function AdminDashboard() {
                 }
             } catch {}
 
-            // 2. Ambil daftar notifikasi live dari server (/api/notification)
             try {
                 const notifRes = await fetch(`${baseUrl}/notification?t=${Date.now()}`);
                 if (notifRes.ok) {
@@ -477,7 +627,6 @@ export default function AdminDashboard() {
                             const storedLast = localStorage.getItem('assholihin_last_notif_id');
                             if (newest.id && newest.id !== storedLast) {
                                 localStorage.setItem('assholihin_last_notif_id', newest.id);
-                                setLastSeenNotifId(newest.id);
                                 showToast(`🔔 ${newest.title}: ${newest.message}`);
                             }
                         }
@@ -485,7 +634,6 @@ export default function AdminDashboard() {
                 }
             } catch {}
 
-            // 3. Cek status individual ke Midtrans untuk setiap transaksi yang ada
             await Promise.all(
                 saved.map(async (item, index) => {
                     if (!item.id || item.id.startsWith('ORD-') || item.id.startsWith('MANUAL-')) return;
@@ -542,7 +690,6 @@ export default function AdminDashboard() {
         return () => clearInterval(interval);
     }, [adminUser]);
 
-    // Formatters
     const formatIDR = (val) => {
         return new Intl.NumberFormat('id-ID', {
             style: 'currency',
@@ -551,7 +698,6 @@ export default function AdminDashboard() {
         }).format(Number(val) || 0);
     };
 
-    // Computed Financial Metrics
     const totalSettledDonations = donationList
         .filter(
             (d) =>
@@ -572,7 +718,6 @@ export default function AdminDashboard() {
     const basePengeluaran = 183000000 + totalKasKeluar;
     const saldoAkhir = 84620000 + totalSettledDonations + totalKasMasuk - totalKasKeluar;
 
-    // Handlers Auth (Hanya Admin)
     const handleAdminLogin = (e) => {
         e.preventDefault();
         setLoginError('');
@@ -594,48 +739,51 @@ export default function AdminDashboard() {
         setAdminUser(null);
     };
 
-    // Handlers Anak Asuh
+    // Handlers Anak Asuh & AI Investigation
     const handleSaveAnak = (e) => {
         e.preventDefault();
+        let savedChild;
         if (editingAnakId) {
-            setAnakList((prev) =>
-                prev.map((a) =>
-                    a.id === editingAnakId ? { ...anakForm, id: editingAnakId, usia: Number(anakForm.usia) } : a
-                )
-            );
-            showToast('Data anak asuh berhasil diperbarui.');
+            savedChild = { ...anakForm, id: editingAnakId, usia: Number(anakForm.usia) };
+            setAnakList((prev) => prev.map((a) => (a.id === editingAnakId ? savedChild : a)));
+            showToast('Data anak & parameter AI kelayakan adopsi berhasil diperbarui.');
         } else {
-            const newEntry = {
+            savedChild = {
                 ...anakForm,
                 id: Date.now(),
                 usia: Number(anakForm.usia)
             };
-            setAnakList((prev) => [newEntry, ...prev]);
-            showToast('Data anak asuh baru berhasil ditambahkan.');
+            setAnakList((prev) => [savedChild, ...prev]);
+            showToast('Data anak baru berhasil ditambahkan & dianalisis oleh AI.');
         }
+        setSelectedAnakForAI(savedChild);
         setShowAnakForm(false);
         setEditingAnakId(null);
-        setAnakForm({
-            nama: '',
-            jk: 'Laki-laki',
-            usia: 12,
-            kategori: 'Yatim',
-            jenjang: 'SMP Kelas 7',
-            sekolah: '',
-            hafalan: 'Juz 30',
-            kesehatan: 'Sehat Baik',
-            statusMukim: 'Mukim Asrama'
-        });
     };
 
     const handleEditAnak = (anak) => {
         setEditingAnakId(anak.id);
-        setAnakForm(anak);
+        setAnakForm({
+            nama: anak.nama || '',
+            jk: anak.jk || 'Laki-laki',
+            usia: anak.usia || 8,
+            kategori: anak.kategori || 'Yatim Piatu',
+            jenjang: anak.jenjang || 'SD Kelas 2',
+            sekolah: anak.sekolah || '',
+            hafalan: anak.hafalan || 'Juz 30',
+            kesehatan: anak.kesehatan || 'Sehat Baik',
+            statusMukim: anak.statusMukim || 'Mukim Asrama',
+            statusWali: anak.statusWali || 'Tanpa Wali / Terlantar',
+            dokumenHukum: anak.dokumenHukum || 'Lengkap (Akta + Berita Acara Dinsos)',
+            kondisiPsikologis: anak.kondisiPsikologis || 'Stabil & Siap Adaptasi',
+            latarBelakang: anak.latarBelakang || ''
+        });
         setShowAnakForm(true);
     };
 
     const handleDeleteAnak = (id) => {
         setAnakList((prev) => prev.filter((a) => a.id !== id));
+        if (selectedAnakForAI?.id === id) setSelectedAnakForAI(null);
         showToast('Data anak asuh telah dihapus.');
     };
 
@@ -734,7 +882,7 @@ export default function AdminDashboard() {
         showToast(`Order ${orderId} diverifikasi menjadi Berhasil (Settlement).`);
     };
 
-    // Handlers Gallery CRUD (Upload Gambar File + Edit Postingan + Hapus)
+    // Handlers Gallery CRUD
     const handleImageFileUpload = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -814,7 +962,6 @@ export default function AdminDashboard() {
         showToast('Postingan galeri telah dihapus.');
     };
 
-    // Export CSV
     const handleExportCSV = () => {
         const headers = ['ID Referensi,Tanggal,Jenis,Kategori/Program,Uraian/Donatur,Nominal (IDR),Status'];
         const rows = [
@@ -839,7 +986,7 @@ export default function AdminDashboard() {
     };
 
     // ============================================================================
-    // VIEW 1: LOGIN ADMIN (HANYA 1 AKUN ADMIN TANPA BENDAHARA)
+    // VIEW 1: LOGIN ADMIN
     // ============================================================================
     if (!adminUser) {
         return (
@@ -848,7 +995,7 @@ export default function AdminDashboard() {
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2 font-medium">
                             <ShieldCheckIcon className="w-4 h-4 text-emerald-300" />
-                            <span>Sistem Informasi Manajemen & Audit Kas (PSAK 109) — LKSA Panti Asuhan As-Sholihin</span>
+                            <span>Portal Administrator — LKSA Panti Asuhan As-Sholihin</span>
                         </div>
                         <Link to="/" className="text-emerald-200 hover:text-white font-semibold flex items-center gap-1">
                             <HomeIcon className="w-3.5 h-3.5" />
@@ -859,28 +1006,25 @@ export default function AdminDashboard() {
 
                 <main className="flex-1 flex items-center justify-center p-4">
                     <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-elevated overflow-hidden">
-                        <div className="p-6 sm:p-8 bg-primary text-white">
-                            <div className="flex items-center gap-3.5 mb-3">
+                        <div className="p-6 bg-primary text-white">
+                            <div className="flex items-center gap-3.5">
                                 <img
                                     src={`${import.meta.env.BASE_URL}img/logo.png`}
                                     alt="Logo Assholihin"
-                                    className="w-12 h-12 rounded-xl bg-white p-1 object-contain"
+                                    className="w-11 h-11 rounded-xl bg-white p-1 object-contain"
                                 />
                                 <div>
                                     <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-200 block">
-                                        Portal Administrator Resmi
+                                        Administrator Tunggal
                                     </span>
-                                    <h1 className="text-lg sm:text-xl font-heading font-bold">
+                                    <h1 className="text-lg font-heading font-bold">
                                         Dashboard Admin Panti
                                     </h1>
                                 </div>
                             </div>
-                            <p className="text-xs text-emerald-100 leading-relaxed">
-                                Masuk sebagai Administrator untuk mengelola transaksi Midtrans, buku kas PSAK 109, data anak asuh, dan publikasi galeri kegiatan.
-                            </p>
                         </div>
 
-                        <form onSubmit={handleAdminLogin} className="p-6 sm:p-8 space-y-4">
+                        <form onSubmit={handleAdminLogin} className="p-6 space-y-4">
                             {loginError && (
                                 <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs font-medium text-red-700">
                                     {loginError}
@@ -923,22 +1067,18 @@ export default function AdminDashboard() {
                                 <span>Masuk ke Dashboard Admin</span>
                             </button>
 
-                            {/* Quick Fill Single Admin Demo Credential */}
-                            <div className="pt-4 border-t border-slate-100">
-                                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                                    Akun Administrator (Klik untuk Isi Otomatis):
-                                </p>
+                            <div className="pt-3 border-t border-slate-100">
                                 <button
                                     type="button"
                                     onClick={() => setLoginForm({ email: 'admin@panti.com', password: 'password' })}
-                                    className="w-full p-3 rounded-lg border border-slate-200 hover:border-primary hover:bg-primary-light/50 text-left transition-all flex items-center justify-between"
+                                    className="w-full p-2.5 rounded-lg border border-slate-200 hover:border-primary hover:bg-primary-light/50 text-left transition-all flex items-center justify-between"
                                 >
                                     <div>
                                         <span className="text-xs font-bold text-slate-800 block">
                                             Administrator As-Sholihin
                                         </span>
                                         <span className="text-[11px] font-mono text-slate-500">
-                                            Email: admin@panti.com | Sandi: password
+                                            admin@panti.com | password
                                         </span>
                                     </div>
                                     <span className="text-[11px] font-semibold text-primary">Isi Otomatis →</span>
@@ -947,10 +1087,6 @@ export default function AdminDashboard() {
                         </form>
                     </div>
                 </main>
-
-                <footer className="py-4 text-center text-xs text-slate-400 border-t border-slate-200 bg-white">
-                    © {new Date().getFullYear()} Yayasan Assholihin Candimulyo Jombang — Sistem Manajemen Terpadu
-                </footer>
             </div>
         );
     }
@@ -962,7 +1098,7 @@ export default function AdminDashboard() {
         { id: 'overview', label: 'Ringkasan Dashboard', icon: Squares2X2Icon },
         { id: 'donations', label: 'Donasi & Midtrans', icon: BanknotesIcon, badge: donationList.length },
         { id: 'kas', label: 'Buku Kas PSAK 109', icon: ArrowsRightLeftIcon },
-        { id: 'anak', label: 'Data Anak Asuh', icon: UserGroupIcon, badge: anakList.length },
+        { id: 'anak', label: 'Anak & AI Adopsi', icon: SparklesIcon, badge: anakList.length },
         { id: 'gallery', label: 'Galeri Kegiatan', icon: PhotoIcon, badge: galleryList.length },
         { id: 'laporan', label: 'Laporan LPJ & Export', icon: DocumentChartBarIcon }
     ];
@@ -1033,6 +1169,8 @@ export default function AdminDashboard() {
         return matchSearch;
     });
 
+    const eligibleAdoptionCount = anakList.filter((a) => evaluateChildAdoptionAI(a).score >= 75).length;
+
     return (
         <div className="min-h-screen bg-surface flex flex-col lg:flex-row">
             {/* Toast Notification */}
@@ -1043,7 +1181,7 @@ export default function AdminDashboard() {
                 </div>
             )}
 
-            {/* Sidebar Desktop & Mobile */}
+            {/* Sidebar */}
             <aside
                 className={`fixed inset-y-0 left-0 z-40 w-64 bg-primary-dark text-white flex flex-col justify-between transition-transform duration-200 lg:static lg:translate-x-0 ${
                     mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -1076,9 +1214,6 @@ export default function AdminDashboard() {
                     </div>
 
                     <div className="p-3 space-y-1">
-                        <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-emerald-300/70">
-                            Menu Manajemen Utama
-                        </div>
                         {menuItems.map((item) => {
                             const Icon = item.icon;
                             const active = activeMenu === item.id;
@@ -1136,7 +1271,7 @@ export default function AdminDashboard() {
 
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col min-w-0">
-                {/* Topbar with Live Notification Bell */}
+                {/* Topbar */}
                 <header className="bg-white border-b border-slate-200/80 sticky top-0 z-30">
                     <div className="px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
@@ -1151,9 +1286,6 @@ export default function AdminDashboard() {
                                 <h1 className="text-base sm:text-lg font-heading font-bold text-slate-900">
                                     {menuItems.find((m) => m.id === activeMenu)?.label}
                                 </h1>
-                                <p className="text-[11px] text-slate-500 hidden sm:block">
-                                    Yayasan Assholihin Candimulyo Jombang • Auto-Sync Midtrans Aktif
-                                </p>
                             </div>
                         </div>
 
@@ -1247,7 +1379,7 @@ export default function AdminDashboard() {
                                         {adminUser.name}
                                     </span>
                                     <span className="text-[10px] font-semibold text-primary block mt-0.5">
-                                        {adminUser.jabatan}
+                                        Administrator
                                     </span>
                                 </div>
                             </div>
@@ -1258,7 +1390,7 @@ export default function AdminDashboard() {
                 {/* Page Body */}
                 <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1">
                     {/* ==================================================================== */}
-                    {/* TAB 1: OVERVIEW DASHBOARD (Tanpa Banner Hijau Selamat Datang) */}
+                    {/* TAB 1: OVERVIEW DASHBOARD */}
                     {/* ==================================================================== */}
                     {activeMenu === 'overview' && (
                         <div className="space-y-6">
@@ -1309,18 +1441,26 @@ export default function AdminDashboard() {
                                     </span>
                                 </div>
 
-                                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-card">
+                                <div
+                                    onClick={() => setActiveMenu('anak')}
+                                    className="bg-white p-5 rounded-2xl border border-slate-200 shadow-card cursor-pointer hover:border-primary/40 transition-all"
+                                >
                                     <div className="flex items-center justify-between mb-2">
-                                        <span className="text-xs font-semibold text-slate-500">Anak Asuh Terbina</span>
+                                        <span className="text-xs font-semibold text-slate-500">
+                                            Anak Asuh & AI Adopsi
+                                        </span>
                                         <span className="p-2 rounded-lg bg-primary-light text-primary">
-                                            <UserGroupIcon className="w-5 h-5" />
+                                            <SparklesIcon className="w-5 h-5" />
                                         </span>
                                     </div>
                                     <div className="text-xl font-bold text-slate-900 tabular-nums">
-                                        {anakList.length} <span className="text-sm font-medium text-slate-500">Santri</span>
+                                        {anakList.length} Santri{' '}
+                                        <span className="text-xs font-semibold text-emerald-700">
+                                            ({eligibleAdoptionCount} Layak Adopsi)
+                                        </span>
                                     </div>
-                                    <span className="text-[11px] text-slate-500 mt-1 block">
-                                        Mukim & Non-Mukim Aktif
+                                    <span className="text-[11px] text-primary font-semibold mt-1 block">
+                                        Klik untuk Analisis AI →
                                     </span>
                                 </div>
                             </div>
@@ -1436,16 +1576,14 @@ export default function AdminDashboard() {
                                             Otomatis membaca setiap transaksi donatur yang masuk dari Midtrans maupun input sekretariat.
                                         </p>
                                     </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowManualDonationForm(!showManualDonationForm)}
-                                            className="btn-primary text-xs py-2 px-3.5"
-                                        >
-                                            <PlusIcon className="w-4 h-4" />
-                                            <span>Catat Donasi Manual / Offline</span>
-                                        </button>
-                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowManualDonationForm(!showManualDonationForm)}
+                                        className="btn-primary text-xs py-2 px-3.5"
+                                    >
+                                        <PlusIcon className="w-4 h-4" />
+                                        <span>Catat Donasi Manual / Offline</span>
+                                    </button>
                                 </div>
 
                                 {showManualDonationForm && (
@@ -1842,30 +1980,185 @@ export default function AdminDashboard() {
                     )}
 
                     {/* ==================================================================== */}
-                    {/* TAB 4: DATA ANAK ASUH & SANTRI */}
+                    {/* TAB 4: DATA ANAK ASUH & AI PENYELIDIKAN KELAYAKAN ADOPSI */}
                     {/* ==================================================================== */}
                     {activeMenu === 'anak' && (
                         <div className="space-y-6">
+                            {/* AI Summary Header Cards */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-card">
+                                    <span className="text-xs font-bold uppercase tracking-wider text-primary block">
+                                        Layak Adopsi Resmi (PP 54/2007)
+                                    </span>
+                                    <div className="text-2xl font-bold text-slate-900 mt-1">
+                                        {anakList.filter((a) => evaluateChildAdoptionAI(a).score >= 75).length} Anak
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        Yatim piatu tanpa wali kerabat & dokumen Dinsos lengkap.
+                                    </p>
+                                </div>
+
+                                <div className="bg-white p-5 rounded-2xl border border-amber-200 shadow-card">
+                                    <span className="text-xs font-bold uppercase tracking-wider text-amber-700 block">
+                                        Rekomendasi Orang Tua Asuh (Foster)
+                                    </span>
+                                    <div className="text-2xl font-bold text-slate-900 mt-1">
+                                        {
+                                            anakList.filter((a) => {
+                                                const sc = evaluateChildAdoptionAI(a).score;
+                                                return sc >= 45 && sc < 75;
+                                            }).length
+                                        }{' '}
+                                        Anak
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        Masih memiliki wali kandung dhuafa / fokus beasiswa SPP.
+                                    </p>
+                                </div>
+
+                                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-card">
+                                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500 block">
+                                        Fokus Pembinaan Asrama
+                                    </span>
+                                    <div className="text-2xl font-bold text-slate-900 mt-1">
+                                        {anakList.filter((a) => evaluateChildAdoptionAI(a).score < 45).length} Anak
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        Usia remaja mandiri atau dokumen belum memenuhi syarat adopsi.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* AI Detailed Investigation Panel (If a child is selected) */}
+                            {selectedAnakForAI && (() => {
+                                const aiResult = evaluateChildAdoptionAI(selectedAnakForAI);
+                                return (
+                                    <div className="bg-white rounded-2xl border-2 border-primary shadow-elevated overflow-hidden">
+                                        <div className="px-6 py-4 bg-primary text-white flex items-center justify-between">
+                                            <div className="flex items-center gap-2.5">
+                                                <SparklesIcon className="w-5 h-5 text-emerald-300" />
+                                                <div>
+                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-200 block">
+                                                        Laporan AI Investigasi Kelayakan Adopsi (PP No. 54/2007 & Permensos 110/2014)
+                                                    </span>
+                                                    <h3 className="text-base font-bold">
+                                                        Hasil Penyelidikan Latar Belakang: {selectedAnakForAI.nama}
+                                                    </h3>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setSelectedAnakForAI(null)}
+                                                className="text-xs bg-emerald-800 hover:bg-emerald-700 px-3 py-1 rounded-lg font-semibold"
+                                            >
+                                                Tutup Analisis [X]
+                                            </button>
+                                        </div>
+
+                                        <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                                            {/* Score & Final Decision */}
+                                            <div className="lg:col-span-4 p-5 rounded-xl bg-slate-50 border border-slate-200 space-y-4">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-xs font-bold text-slate-500 uppercase">
+                                                        Skor Kelayakan AI
+                                                    </span>
+                                                    <span className="text-2xl font-mono font-extrabold text-primary">
+                                                        {aiResult.score}%
+                                                    </span>
+                                                </div>
+                                                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                                                    <div
+                                                        className={`h-full rounded-full ${
+                                                            aiResult.score >= 75
+                                                                ? 'bg-emerald-600'
+                                                                : aiResult.score >= 45
+                                                                ? 'bg-amber-500'
+                                                                : 'bg-red-500'
+                                                        }`}
+                                                        style={{ width: `${aiResult.score}%` }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span
+                                                        className={`inline-block px-3 py-1 rounded-full text-xs font-bold border ${aiResult.badgeColor}`}
+                                                    >
+                                                        {aiResult.verdict}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                                                    {aiResult.recommendation}
+                                                </p>
+                                            </div>
+
+                                            {/* Background Investigation Findings */}
+                                            <div className="lg:col-span-8 space-y-4">
+                                                <div className="p-4 rounded-xl bg-mint border border-emerald-200/80">
+                                                    <span className="text-xs font-bold text-primary uppercase block mb-1">
+                                                        Kronologi & Latar Belakang Keluarga Anak:
+                                                    </span>
+                                                    <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                                                        {aiResult.riwayatLatar}
+                                                    </p>
+                                                </div>
+
+                                                <div>
+                                                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2.5">
+                                                        Rincian Temuan Investigasi AI (5 Parameter):
+                                                    </h4>
+                                                    <ul className="space-y-2">
+                                                        {aiResult.findings.map((f, idx) => (
+                                                            <li
+                                                                key={idx}
+                                                                className="flex items-start gap-2.5 text-xs sm:text-sm text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200/70"
+                                                            >
+                                                                <CheckBadgeIcon className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                                                                <span>{f}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Main Table & CRUD Form */}
                             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-card space-y-5">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
                                     <div>
                                         <h2 className="text-lg font-bold text-slate-900">
-                                            Data Induk Anak Asuh & Monitoring Pendidikan
+                                            Data Anak Asuh & Sistem AI Penyelidikan Kelayakan Adopsi
                                         </h2>
                                         <p className="text-xs text-slate-500 mt-0.5">
-                                            Mengelola profil santri mukim & non-mukim, jenjang sekolah, serta capaian tahfidz.
+                                            Klik tombol <strong>&ldquo;Cek AI Adopsi&rdquo;</strong> pada baris anak untuk melihat hasil penyelidikan latar belakang & rekomendasi hukum.
                                         </p>
                                     </div>
                                     <button
                                         type="button"
                                         onClick={() => {
                                             setEditingAnakId(null);
+                                            setAnakForm({
+                                                nama: '',
+                                                jk: 'Laki-laki',
+                                                usia: 6,
+                                                kategori: 'Yatim Piatu',
+                                                jenjang: 'SD Kelas 1',
+                                                sekolah: '',
+                                                hafalan: 'Juz 30',
+                                                kesehatan: 'Sehat Baik',
+                                                statusMukim: 'Mukim Asrama',
+                                                statusWali: 'Tanpa Wali / Terlantar',
+                                                dokumenHukum: 'Lengkap (Akta + Berita Acara Dinsos)',
+                                                kondisiPsikologis: 'Stabil & Siap Adaptasi',
+                                                latarBelakang: ''
+                                            });
                                             setShowAnakForm(!showAnakForm);
                                         }}
                                         className="btn-primary text-xs py-2 px-3.5"
                                     >
                                         <PlusIcon className="w-4 h-4" />
-                                        <span>Tambah Data Anak Asuh</span>
+                                        <span>Tambah Anak & Analisis AI</span>
                                     </button>
                                 </div>
 
@@ -1875,7 +2168,9 @@ export default function AdminDashboard() {
                                         className="p-5 rounded-xl bg-slate-50 border border-slate-200 space-y-4"
                                     >
                                         <h3 className="text-sm font-bold text-slate-900">
-                                            {editingAnakId ? 'Edit Data Anak Asuh' : 'Tambah Anak Asuh Baru'}
+                                            {editingAnakId
+                                                ? 'Edit Profil & Parameter Latar Belakang Anak'
+                                                : 'Input Data Anak & Parameter Penyelidikan AI Adopsi'}
                                         </h3>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                                             <div>
@@ -1887,7 +2182,7 @@ export default function AdminDashboard() {
                                                     required
                                                     value={anakForm.nama}
                                                     onChange={(e) => setAnakForm({ ...anakForm, nama: e.target.value })}
-                                                    placeholder="Nama lengkap santri"
+                                                    placeholder="Nama lengkap anak"
                                                     className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
                                                 />
                                             </div>
@@ -1911,7 +2206,7 @@ export default function AdminDashboard() {
                                                 <input
                                                     type="number"
                                                     min="1"
-                                                    max="23"
+                                                    max="22"
                                                     required
                                                     value={anakForm.usia}
                                                     onChange={(e) => setAnakForm({ ...anakForm, usia: e.target.value })}
@@ -1924,69 +2219,104 @@ export default function AdminDashboard() {
                                                 </label>
                                                 <select
                                                     value={anakForm.kategori}
-                                                    onChange={(e) => setAnakForm({ ...anakForm, kategori: e.target.value })}
+                                                    onChange={(e) =>
+                                                        setAnakForm({ ...anakForm, kategori: e.target.value })
+                                                    }
                                                     className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
                                                 >
+                                                    <option value="Yatim Piatu">Yatim Piatu</option>
                                                     <option value="Yatim">Yatim</option>
                                                     <option value="Piatu">Piatu</option>
-                                                    <option value="Yatim Piatu">Yatim Piatu</option>
                                                     <option value="Dhuafa">Dhuafa</option>
                                                 </select>
                                             </div>
+
+                                            {/* Parameter Investigasi AI */}
+                                            <div>
+                                                <label className="block text-xs font-semibold text-primary mb-1">
+                                                    [Parameter AI] Status Wali / Keluarga
+                                                </label>
+                                                <select
+                                                    value={anakForm.statusWali}
+                                                    onChange={(e) =>
+                                                        setAnakForm({ ...anakForm, statusWali: e.target.value })
+                                                    }
+                                                    className="w-full px-3 py-2 rounded-lg border border-emerald-300 bg-white text-xs"
+                                                >
+                                                    <option value="Tanpa Wali / Terlantar">Tanpa Wali / Terlantar</option>
+                                                    <option value="Masih Ada Ibu Kandung (Dhuafa)">Masih Ada Ibu Kandung (Dhuafa)</option>
+                                                    <option value="Masih Ada Wali / Kerabat">Masih Ada Wali / Kerabat</option>
+                                                    <option value="Orang Tua Kandung Dhuafa Lengkap">Orang Tua Kandung Dhuafa Lengkap</option>
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-xs font-semibold text-primary mb-1">
+                                                    [Parameter AI] Dokumen Hukum Adopsi
+                                                </label>
+                                                <select
+                                                    value={anakForm.dokumenHukum}
+                                                    onChange={(e) =>
+                                                        setAnakForm({ ...anakForm, dokumenHukum: e.target.value })
+                                                    }
+                                                    className="w-full px-3 py-2 rounded-lg border border-emerald-300 bg-white text-xs"
+                                                >
+                                                    <option value="Lengkap (Akta + Berita Acara Dinsos)">Lengkap (Akta + Berita Acara Dinsos)</option>
+                                                    <option value="Sebagian (KK / Akta)">Sebagian (KK / Akta Tanpa Pelepasan)</option>
+                                                    <option value="Belum Lengkap / Dalam Penelusuran">Belum Lengkap / Dalam Penelusuran</option>
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-xs font-semibold text-primary mb-1">
+                                                    [Parameter AI] Asesmen Psikologis
+                                                </label>
+                                                <select
+                                                    value={anakForm.kondisiPsikologis}
+                                                    onChange={(e) =>
+                                                        setAnakForm({ ...anakForm, kondisiPsikologis: e.target.value })
+                                                    }
+                                                    className="w-full px-3 py-2 rounded-lg border border-emerald-300 bg-white text-xs"
+                                                >
+                                                    <option value="Stabil & Siap Adaptasi">Stabil & Siap Adaptasi Keluarga Baru</option>
+                                                    <option value="Nyaman Bersama Teman Asrama">Lebih Nyaman Bersama Teman Asrama</option>
+                                                    <option value="Butuh Pendampingan Konseling">Butuh Pendampingan Konseling Trauma</option>
+                                                </select>
+                                            </div>
+
                                             <div>
                                                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                                    Jenjang Kelas
+                                                    Jenjang & Sekolah
                                                 </label>
                                                 <input
                                                     type="text"
                                                     required
                                                     value={anakForm.jenjang}
-                                                    onChange={(e) => setAnakForm({ ...anakForm, jenjang: e.target.value })}
-                                                    placeholder="Misal: SMP Kelas 8"
-                                                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                                    Nama Sekolah / Madrasah
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={anakForm.sekolah}
-                                                    onChange={(e) => setAnakForm({ ...anakForm, sekolah: e.target.value })}
-                                                    placeholder="Misal: MTsN Candimulyo"
-                                                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                                    Capaian Tahfidz
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={anakForm.hafalan}
-                                                    onChange={(e) => setAnakForm({ ...anakForm, hafalan: e.target.value })}
-                                                    placeholder="Misal: 3 Juz"
-                                                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                                    Status Asrama
-                                                </label>
-                                                <select
-                                                    value={anakForm.statusMukim}
                                                     onChange={(e) =>
-                                                        setAnakForm({ ...anakForm, statusMukim: e.target.value })
+                                                        setAnakForm({ ...anakForm, jenjang: e.target.value })
                                                     }
+                                                    placeholder="Misal: SD Kelas 1 / TK"
                                                     className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
-                                                >
-                                                    <option value="Mukim Asrama">Mukim Asrama</option>
-                                                    <option value="Non-Mukim (Binaan)">Non-Mukim (Binaan)</option>
-                                                </select>
+                                                />
                                             </div>
                                         </div>
+
+                                        <div>
+                                            <label className="block text-xs font-semibold text-primary mb-1">
+                                                [Parameter AI] Kronologi & Latar Belakang Keluarga Anak
+                                            </label>
+                                            <textarea
+                                                rows="2"
+                                                required
+                                                value={anakForm.latarBelakang}
+                                                onChange={(e) =>
+                                                    setAnakForm({ ...anakForm, latarBelakang: e.target.value })
+                                                }
+                                                placeholder="Tuliskan riwayat asal-usul anak, kondisi orang tua/wali, dan alasan masuk panti untuk dianalisis AI..."
+                                                className="w-full px-3 py-2 rounded-lg border border-emerald-300 bg-white text-xs"
+                                            />
+                                        </div>
+
                                         <div className="flex justify-end gap-2">
                                             <button
                                                 type="button"
@@ -1996,7 +2326,7 @@ export default function AdminDashboard() {
                                                 Batal
                                             </button>
                                             <button type="submit" className="btn-primary text-xs py-2 px-4">
-                                                Simpan Data Anak
+                                                Simpan & Jalankan Analisis AI
                                             </button>
                                         </div>
                                     </form>
@@ -2006,57 +2336,77 @@ export default function AdminDashboard() {
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                                                <th className="py-3 pr-4">Nama Lengkap</th>
-                                                <th className="py-3 px-4">L/P & Usia</th>
-                                                <th className="py-3 px-4">Kategori</th>
-                                                <th className="py-3 px-4">Pendidikan</th>
-                                                <th className="py-3 px-4">Capaian Tahfidz</th>
-                                                <th className="py-3 px-4">Status Mukim</th>
-                                                <th className="py-3 pl-4 text-right">Aksi</th>
+                                                <th className="py-3 pr-4">Nama & Usia</th>
+                                                <th className="py-3 px-4">Latar Belakang Wali</th>
+                                                <th className="py-3 px-4">Dokumen Hukum</th>
+                                                <th className="py-3 px-4">Skor AI</th>
+                                                <th className="py-3 px-4">Keputusan AI Kelayakan Adopsi</th>
+                                                <th className="py-3 pl-4 text-right">Investigasi & Aksi</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
-                                            {anakList.map((anak) => (
-                                                <tr key={anak.id} className="hover:bg-slate-50/80">
-                                                    <td className="py-3.5 pr-4 font-bold text-slate-900">
-                                                        {anak.nama}
-                                                    </td>
-                                                    <td className="py-3.5 px-4 text-slate-600">
-                                                        {anak.jk} • {anak.usia} Thn
-                                                    </td>
-                                                    <td className="py-3.5 px-4">
-                                                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-primary-light text-primary border border-emerald-200">
-                                                            {anak.kategori}
-                                                        </span>
-                                                    </td>
-                                                    <td className="py-3.5 px-4 text-slate-700">
-                                                        <span className="font-semibold block">{anak.jenjang}</span>
-                                                        <span className="text-xs text-slate-500">{anak.sekolah}</span>
-                                                    </td>
-                                                    <td className="py-3.5 px-4 text-emerald-700 font-semibold">
-                                                        {anak.hafalan}
-                                                    </td>
-                                                    <td className="py-3.5 px-4 text-slate-600">{anak.statusMukim}</td>
-                                                    <td className="py-3.5 pl-4 text-right space-x-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleEditAnak(anak)}
-                                                            className="text-slate-500 hover:text-primary p-1"
-                                                            title="Edit"
-                                                        >
-                                                            <PencilSquareIcon className="w-4 h-4 inline" />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleDeleteAnak(anak.id)}
-                                                            className="text-slate-400 hover:text-red-600 p-1"
-                                                            title="Hapus"
-                                                        >
-                                                            <TrashIcon className="w-4 h-4 inline" />
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))}
+                                            {anakList.map((anak) => {
+                                                const ai = evaluateChildAdoptionAI(anak);
+                                                return (
+                                                    <tr key={anak.id} className="hover:bg-slate-50/80">
+                                                        <td className="py-3.5 pr-4">
+                                                            <span className="font-bold text-slate-900 block">
+                                                                {anak.nama}
+                                                            </span>
+                                                            <span className="text-xs text-slate-500">
+                                                                {anak.jk} • {anak.usia} Thn • {anak.kategori}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3.5 px-4 text-xs text-slate-700">
+                                                            <span className="font-semibold block">
+                                                                {anak.statusWali || 'Masih Ada Wali'}
+                                                            </span>
+                                                            <span className="text-slate-400">
+                                                                {anak.kondisiPsikologis || 'Stabil'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3.5 px-4 text-xs text-slate-600">
+                                                            {anak.dokumenHukum || 'Sebagian (KK / Akta)'}
+                                                        </td>
+                                                        <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
+                                                            {ai.score}%
+                                                        </td>
+                                                        <td className="py-3.5 px-4">
+                                                            <span
+                                                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${ai.badgeColor}`}
+                                                            >
+                                                                {ai.verdict}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3.5 pl-4 text-right space-x-1.5 whitespace-nowrap">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSelectedAnakForAI(anak)}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-light text-primary hover:bg-primary hover:text-white text-xs font-semibold transition-colors"
+                                                            >
+                                                                <DocumentMagnifyingGlassIcon className="w-4 h-4" />
+                                                                <span>Cek AI Adopsi</span>
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleEditAnak(anak)}
+                                                                className="text-slate-500 hover:text-primary p-1"
+                                                                title="Edit"
+                                                            >
+                                                                <PencilSquareIcon className="w-4 h-4 inline" />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeleteAnak(anak.id)}
+                                                                className="text-slate-400 hover:text-red-600 p-1"
+                                                                title="Hapus"
+                                                            >
+                                                                <TrashIcon className="w-4 h-4 inline" />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>
@@ -2065,7 +2415,7 @@ export default function AdminDashboard() {
                     )}
 
                     {/* ==================================================================== */}
-                    {/* TAB 5: GALERI KEGIATAN (FULL CRUD: UPLOAD FILE GAMBAR, EDIT & HAPUS) */}
+                    {/* TAB 5: GALERI KEGIATAN */}
                     {/* ==================================================================== */}
                     {activeMenu === 'gallery' && (
                         <div className="space-y-6">
@@ -2174,7 +2524,6 @@ export default function AdminDashboard() {
                                             </div>
                                         </div>
 
-                                        {/* Upload File Gambar dari Komputer + Preview */}
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                                             <div className="space-y-2">
                                                 <label className="block text-xs font-semibold text-slate-700">
