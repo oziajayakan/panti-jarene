@@ -1,37 +1,80 @@
-
 import { useState, useEffect, Fragment } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Dialog, Transition } from '@headlessui/react';
-import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { ExclamationTriangleIcon, ClockIcon } from '@heroicons/react/24/outline';
+
+const PAYMENT_TIMEOUT_MS = 15 * 60 * 1000; // 15 menit batas waktu pembayaran
+
+function computeExpiryMs(orderData, orderId) {
+    if (orderData?.expires_at) {
+        const parsed = new Date(orderData.expires_at).getTime();
+        if (!Number.isNaN(parsed)) return parsed;
+    }
+    if (orderData?.created_at) {
+        const parsed = new Date(orderData.created_at).getTime();
+        if (!Number.isNaN(parsed)) return parsed + PAYMENT_TIMEOUT_MS;
+    }
+    if (orderId && orderId.startsWith('DONASI-')) {
+        const ts = Number(orderId.split('-')[1]);
+        if (!Number.isNaN(ts) && ts > 1600000000000) return ts + PAYMENT_TIMEOUT_MS;
+    }
+    return Date.now() + PAYMENT_TIMEOUT_MS;
+}
 
 export default function PendingPage() {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const location = useLocation();
 
-    // Get Order ID from URL or State
     const orderId = searchParams.get('order_id') || location.state?.order_id;
 
     const [loading, setLoading] = useState(true);
     const [orderData, setOrderData] = useState(null);
     const [isCancelling, setIsCancelling] = useState(false);
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+    const [nowMs, setNowMs] = useState(Date.now());
 
     useEffect(() => {
         let interval;
         if (orderId) {
             checkStatus();
-            // Polling every 5 seconds
             interval = setInterval(() => {
-                checkStatus(true); // true = silent mode (no loading spinner full screen)
-            }, 5000);
+                checkStatus(true);
+            }, 4000);
         } else {
-            // If no order ID, go home
             setTimeout(() => navigate('/'), 2000);
         }
         return () => clearInterval(interval);
     }, [orderId]);
+
+    // Countdown 1 detik & auto-cancel bila waktu habis
+    useEffect(() => {
+        const timer = setInterval(() => {
+            const current = Date.now();
+            setNowMs(current);
+            if (orderData && orderData.status === 'pending') {
+                const expMs = computeExpiryMs(orderData, orderId);
+                if (current >= expMs) {
+                    triggerAutoExpire();
+                }
+            }
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [orderData, orderId]);
+
+    const triggerAutoExpire = async () => {
+        try {
+            const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
+            await axios.post(`${baseUrl}/landing/payment/cancel`, { order_id: orderId }).catch(() => {});
+            const saved = JSON.parse(localStorage.getItem('assholihin_donor_history') || '[]');
+            const updated = saved.map((item) =>
+                item.id === orderId ? { ...item, status: 'Gagal / Kedaluwarsa (Auto-Cancel)' } : item
+            );
+            localStorage.setItem('assholihin_donor_history', JSON.stringify(updated));
+            setOrderData((prev) => (prev ? { ...prev, status: 'expired' } : prev));
+        } catch {}
+    };
 
     const checkStatus = async (silent = false) => {
         if (!silent) setLoading(true);
@@ -46,12 +89,19 @@ export default function PendingPage() {
                 const merged = {
                     ...(localMeta || {}),
                     ...response.data.data,
-                    customer_name: localMeta?.customer_name || response.data.data.customer_name || 'Donatur As-Sholihin',
-                    customer_email: localMeta?.customer_email || response.data.data.customer_email || 'donatur@assholihin.or.id'
+                    customer_name:
+                        localMeta?.customer_name || response.data.data.customer_name || 'Donatur As-Sholihin',
+                    customer_email:
+                        localMeta?.customer_email || response.data.data.customer_email || 'donatur@assholihin.or.id'
                 };
+
+                const expMs = computeExpiryMs(merged, orderId);
+                if (merged.status === 'pending' && Date.now() >= expMs) {
+                    merged.status = 'expired';
+                }
+
                 setOrderData(merged);
 
-                // If paid, redirect to success
                 if (merged.status === 'paid' || merged.status === 'success') {
                     navigate(`/success?order_id=${orderId}`);
                 }
@@ -59,7 +109,7 @@ export default function PendingPage() {
                 setOrderData({ ...localMeta, status: 'pending', payment_channel: 'MIDTRANS SNAP' });
             }
         } catch (error) {
-            console.error("Error fetching status:", error);
+            console.error('Error fetching status:', error);
             const localMetaRaw = localStorage.getItem(`donasi_meta_${orderId}`);
             if (localMetaRaw) {
                 setOrderData({ ...JSON.parse(localMetaRaw), status: 'pending', payment_channel: 'MIDTRANS SNAP' });
@@ -76,17 +126,17 @@ export default function PendingPage() {
     const confirmCancel = async () => {
         setIsCancelling(true);
         try {
-            const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
-            const response = await axios.post(`${baseUrl}/landing/payment/cancel`, { order_id: orderId });
+            const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
+            await axios.post(`${baseUrl}/landing/payment/cancel`, { order_id: orderId }).catch(() => {});
 
-            if (response.data.success) {
-                navigate('/');
-            } else {
-                alert("Gagal membatalkan transaksi.");
-            }
+            const saved = JSON.parse(localStorage.getItem('assholihin_donor_history') || '[]');
+            const updated = saved.map((item) =>
+                item.id === orderId ? { ...item, status: 'Dibatalkan oleh Donatur' } : item
+            );
+            localStorage.setItem('assholihin_donor_history', JSON.stringify(updated));
+            setOrderData((prev) => (prev ? { ...prev, status: 'cancelled' } : prev));
         } catch (error) {
-            console.error("Cancel error:", error);
-            alert("Terjadi kesalahan saat membatalkan transaksi.");
+            console.error('Cancel error:', error);
         } finally {
             setIsCancelling(false);
             setIsCancelModalOpen(false);
@@ -99,7 +149,7 @@ export default function PendingPage() {
         } else if (location.state?.payment_url) {
             window.open(location.state.payment_url, '_blank');
         } else {
-            alert("Link pembayaran tidak ditemukan.");
+            alert('Link pembayaran tidak ditemukan.');
         }
     };
 
@@ -109,6 +159,14 @@ export default function PendingPage() {
             currency: 'IDR',
             minimumFractionDigits: 0
         }).format(amount);
+    };
+
+    const formatCountdown = (ms) => {
+        if (ms <= 0) return '00:00';
+        const totalSecs = Math.floor(ms / 1000);
+        const mins = Math.floor(totalSecs / 60);
+        const secs = totalSecs % 60;
+        return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
     };
 
     if (loading) {
@@ -124,52 +182,72 @@ export default function PendingPage() {
             <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 text-center">
                 <h1 className="text-2xl font-bold text-slate-800 mb-2">Transaksi Tidak Ditemukan</h1>
                 <p className="text-slate-500 mb-4">Mohon maaf, data transaksi tidak ditemukan.</p>
-                <button onClick={() => navigate('/')} className="px-6 py-2 bg-primary text-white rounded-lg">Kembali ke Beranda</button>
-            </div>
-        );
-    }
-
-    // If cancelled
-    if (orderData.status === 'cancelled' || orderData.status === 'failed') {
-        return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 text-center">
-                <div className="size-20 bg-red-100 rounded-full flex items-center justify-center mb-6 text-red-500">
-                    <span className="material-symbols-outlined text-4xl">cancel</span>
-                </div>
-                <h1 className="text-2xl font-bold text-slate-800 mb-2">Transaksi Dibatalkan</h1>
-                <p className="text-slate-500 mb-8 max-w-md">Transaksi ini telah dibatalkan atau kadaluarsa.</p>
-                <button onClick={() => navigate('/')} className="px-8 py-3 bg-white border border-slate-300 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-colors">
+                <button onClick={() => navigate('/')} className="px-6 py-2 bg-primary text-white rounded-lg">
                     Kembali ke Beranda
                 </button>
             </div>
         );
     }
 
+    const expiryMs = computeExpiryMs(orderData, orderId);
+    const remainingMs = expiryMs - nowMs;
+
+    if (['cancelled', 'failed', 'expired'].includes(orderData.status) || remainingMs <= 0) {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 text-center animate-fade-up">
+                <div className="size-20 bg-red-100 rounded-full flex items-center justify-center mb-6 text-red-500">
+                    <ExclamationTriangleIcon className="w-10 h-10" />
+                </div>
+                <h1 className="text-2xl font-bold text-slate-800 mb-2">
+                    Transaksi Dibatalkan / Kedaluwarsa
+                </h1>
+                <p className="text-slate-500 mb-8 max-w-md text-sm">
+                    Waktu tunggu pembayaran untuk Order ID <strong className="font-mono">{orderId}</strong> telah habis atau dibatalkan. Silakan buat donasi baru jika ingin melanjutkan.
+                </p>
+                <div className="flex flex-wrap gap-3 justify-center">
+                    <button
+                        onClick={() => navigate('/portal-donatur')}
+                        className="px-6 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-hover transition-colors text-sm"
+                    >
+                        Lihat Riwayat Donasi
+                    </button>
+                    <button
+                        onClick={() => navigate('/')}
+                        className="px-6 py-3 bg-white border border-slate-300 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-colors text-sm"
+                    >
+                        Kembali ke Beranda
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <div className="min-h-screen bg-slate-50 font-body py-12 px-4 sm:px-6 lg:px-8 flex items-center justify-center">
-            <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden relative">
-                {/* Decorative Top */}
+        <div className="min-h-screen bg-slate-50 bg-subtle-animated font-body py-12 px-4 sm:px-6 lg:px-8 flex items-center justify-center">
+            <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden relative animate-fade-up">
                 <div className="h-2 bg-amber-400 w-full absolute top-0"></div>
 
                 <div className="p-8">
-                    <div className="text-center mb-8">
+                    <div className="text-center mb-6">
                         <div className="relative inline-flex items-center justify-center size-20 mb-4">
                             <div className="absolute inset-0 bg-amber-100 rounded-full animate-ping opacity-75"></div>
                             <div className="relative size-20 bg-amber-50 rounded-full flex items-center justify-center text-amber-500 border border-amber-100">
-                                <span className="material-symbols-outlined text-4xl animate-pulse">hourglass_top</span>
+                                <ClockIcon className="w-10 h-10 animate-pulse" />
                             </div>
                         </div>
 
                         <h2 className="text-2xl font-heading font-bold text-slate-800">Menunggu Pembayaran</h2>
-                        <p className="text-slate-500 text-sm mt-2 px-4">
-                            Sistem sedang memantau status pembayaran Anda secara otomatis...
+                        <p className="text-slate-500 text-xs sm:text-sm mt-1.5">
+                            Selesaikan pembayaran sebelum waktu tunggu berakhir:
                         </p>
+
+                        <div className="mt-3 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 font-mono font-extrabold text-lg">
+                            <ClockIcon className="w-5 h-5 text-amber-600" />
+                            <span>{formatCountdown(remainingMs)}</span>
+                        </div>
                     </div>
 
-                    <div className="bg-slate-50 rounded-2xl p-6 mb-8 border border-slate-100 relative overflow-hidden">
-                        {/* Shimmer loading effect */}
-                        <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/50 to-transparent"></div>
-
+                    <div className="bg-slate-50 rounded-2xl p-6 mb-6 border border-slate-100 relative overflow-hidden">
                         <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-200 dashed relative z-10">
                             <span className="text-sm text-slate-500">Total Pembayaran</span>
                             <span className="text-xl font-bold text-primary">{formatCurrency(orderData.amount)}</span>
@@ -181,13 +259,15 @@ export default function PendingPage() {
                             </div>
                             <div className="flex justify-between text-sm">
                                 <span className="text-slate-500">Metode</span>
-                                <span className="font-medium text-slate-700">{orderData.payment_channel || orderData.payment_method}</span>
+                                <span className="font-medium text-slate-700">
+                                    {orderData.payment_channel || orderData.payment_method || 'MIDTRANS SNAP'}
+                                </span>
                             </div>
                             <div className="flex justify-between text-sm">
                                 <span className="text-slate-500">Status</span>
                                 <span className="inline-flex items-center gap-1.5 font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded text-xs">
                                     <span className="size-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                                    Pending
+                                    Menunggu Pembayaran
                                 </span>
                             </div>
                         </div>
@@ -196,23 +276,21 @@ export default function PendingPage() {
                     <div className="space-y-3">
                         <button
                             onClick={handlePay}
-                            className="w-full py-4 px-6 bg-primary text-white rounded-xl font-bold shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
+                            className="w-full py-3.5 px-6 bg-primary text-white rounded-xl font-bold shadow-lg shadow-primary/20 hover:bg-primary-hover transition-all flex items-center justify-center gap-2 text-sm"
                         >
                             <span>Buka Halaman Pembayaran</span>
-                            <span className="material-symbols-outlined text-sm">open_in_new</span>
                         </button>
 
                         <button
                             onClick={() => checkStatus()}
-                            className="w-full py-3 px-6 text-sm font-semibold text-primary hover:text-primary-dark transition-colors flex items-center justify-center gap-2"
+                            className="w-full py-2.5 px-6 text-xs sm:text-sm font-semibold text-primary hover:text-primary-dark transition-colors flex items-center justify-center gap-2"
                         >
-                            <span className="material-symbols-outlined text-lg">refresh</span>
-                            Cek Status Manual
+                            <span>Cek Status Pembayaran Sekarang</span>
                         </button>
 
                         <button
                             onClick={handleCancelClick}
-                            className="w-full py-3 px-6 text-sm text-slate-400 hover:text-red-500 transition-colors"
+                            className="w-full py-2.5 px-6 text-xs sm:text-sm text-slate-400 hover:text-red-500 transition-colors"
                         >
                             Batalkan Transaksi
                         </button>
@@ -220,7 +298,6 @@ export default function PendingPage() {
                 </div>
             </div>
 
-            {/* Cancel Confirmation Modal */}
             <Transition show={isCancelModalOpen} as={Fragment}>
                 <Dialog as="div" className="relative z-50" onClose={() => setIsCancelModalOpen(false)}>
                     <Transition.Child
@@ -250,16 +327,21 @@ export default function PendingPage() {
                                     <div className="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
                                         <div className="sm:flex sm:items-start">
                                             <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
-                                                <ExclamationTriangleIcon className="h-6 w-6 text-red-600" aria-hidden="true" />
+                                                <ExclamationTriangleIcon
+                                                    className="h-6 w-6 text-red-600"
+                                                    aria-hidden="true"
+                                                />
                                             </div>
                                             <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
-                                                <Dialog.Title as="h3" className="text-lg font-heading font-bold leading-6 text-slate-900">
+                                                <Dialog.Title
+                                                    as="h3"
+                                                    className="text-lg font-heading font-bold leading-6 text-slate-900"
+                                                >
                                                     Batalkan Transaksi?
                                                 </Dialog.Title>
                                                 <div className="mt-2">
                                                     <p className="text-sm text-slate-500">
-                                                        Apakah Anda yakin ingin membatalkan transaksi ini?
-                                                        Tindakan ini tidak dapat dibatalkan.
+                                                        Apakah Anda yakin ingin membatalkan transaksi ini? Tindakan ini tidak dapat dibatalkan.
                                                     </p>
                                                 </div>
                                             </div>

@@ -67,9 +67,9 @@ export default function AboutSection() {
                         return (
                             <div
                                 key={idx}
-                                className="p-5 rounded-2xl border border-slate-200/90 bg-slate-50/50 hover:bg-white hover:border-primary/40 transition-all"
+                                className="group p-5 rounded-2xl border border-slate-200/90 bg-slate-50/50 hover:bg-white hover:border-primary/40 hover:-translate-y-1 hover:shadow-card-hover transition-all duration-300"
                             >
-                                <div className="w-10 h-10 rounded-xl bg-primary-light text-primary flex items-center justify-center mb-3">
+                                <div className="w-10 h-10 rounded-xl bg-primary-light text-primary flex items-center justify-center mb-3 transition-transform duration-300 group-hover:scale-110">
                                     <Icon className="w-5 h-5" />
                                 </div>
                                 <h3 className="text-sm font-bold text-slate-900">{pillar.title}</h3>

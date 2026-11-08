@@ -40,11 +40,15 @@ const QUICK_PILLS = [
 
 export default function Hero({ onDonateClick }) {
     return (
-        <section id="hero" className="relative bg-mint border-b border-slate-200/80 py-12 lg:py-16 overflow-hidden">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section id="hero" className="relative bg-mint bg-subtle-animated border-b border-slate-200/80 py-12 lg:py-16 overflow-hidden">
+            {/* Soft animated background orbs */}
+            <div className="pointer-events-none absolute -top-20 -left-20 w-72 h-72 rounded-full bg-emerald-300/20 blur-3xl animate-pulse-soft" />
+            <div className="pointer-events-none absolute -bottom-24 right-10 w-80 h-80 rounded-full bg-amber-200/25 blur-3xl animate-pulse-soft" />
+
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
                     {/* Left: Concise Value Proposition */}
-                    <div className="lg:col-span-6 space-y-5">
+                    <div className="lg:col-span-6 space-y-5 animate-fade-up">
                         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-950/5 border border-emerald-800/15 text-primary text-xs font-semibold">
                             <ShieldCheckIcon className="w-4 h-4 text-primary shrink-0" />
                             <span>LKSA Resmi Terdaftar • Candimulyo, Jombang</span>
@@ -106,12 +110,12 @@ export default function Hero({ onDonateClick }) {
                     </div>
 
                     {/* Right: Clean Visual Card */}
-                    <div className="lg:col-span-6">
-                        <div className="relative rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-elevated">
+                    <div className="lg:col-span-6 animate-fade-up">
+                        <div className="relative rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-elevated animate-float-slow">
                             <img
                                 src={`${import.meta.env.BASE_URL}img/hero-bg.jpg`}
                                 alt="Santri Panti Asuhan As-Sholihin"
-                                className="w-full h-[280px] sm:h-[340px] object-cover"
+                                className="w-full h-[280px] sm:h-[340px] object-cover transition-transform duration-700 hover:scale-105"
                             />
                             <div className="p-4 sm:p-5 bg-white flex flex-wrap items-center justify-between gap-4">
                                 <div className="flex items-center gap-3">

@@ -84,6 +84,8 @@ export default function DonationModal({ isOpen, setIsOpen, initialData }) {
                 const orderId = response.data.invoice_number || response.data.data?.order_id;
 
                 if (orderId) {
+                    const nowIso = new Date().toISOString();
+                    const expiresAtIso = response.data.expires_at || response.data.data?.expires_at || new Date(Date.now() + 15 * 60 * 1000).toISOString();
                     localStorage.setItem('last_order_id', orderId);
                     const metaObj = {
                         order_id: orderId,
@@ -92,7 +94,8 @@ export default function DonationModal({ isOpen, setIsOpen, initialData }) {
                         amount: Number(formData.nominal),
                         program: formData.program,
                         payment_url: paymentUrl,
-                        created_at: new Date().toISOString()
+                        created_at: nowIso,
+                        expires_at: expiresAtIso
                     };
                     localStorage.setItem(`donasi_meta_${orderId}`, JSON.stringify(metaObj));
 
@@ -114,7 +117,9 @@ export default function DonationModal({ isOpen, setIsOpen, initialData }) {
                             program: formData.program,
                             amount: Number(formData.nominal),
                             method: 'MIDTRANS SNAP',
-                            status: 'Menunggu Pembayaran'
+                            status: 'Menunggu Pembayaran',
+                            created_at: nowIso,
+                            expires_at: expiresAtIso
                         };
                         const filtered = existingHistory.filter(item => item.id !== orderId);
                         localStorage.setItem('assholihin_donor_history', JSON.stringify([newEntry, ...filtered]));

@@ -425,6 +425,22 @@ export default function AdminDashboard() {
     const [toastMessage, setToastMessage] = useState('');
     const [notifications, setNotifications] = useState([]);
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+    const [readSidebarBadges, setReadSidebarBadges] = useState(() => {
+        try {
+            const raw = localStorage.getItem('assholihin_admin_read_badges');
+            return raw ? JSON.parse(raw) : {};
+        } catch {
+            return {};
+        }
+    });
+    const [readNotifIds, setReadNotifIds] = useState(() => {
+        try {
+            const raw = localStorage.getItem('assholihin_admin_read_notifs');
+            return raw ? JSON.parse(raw) : [];
+        } catch {
+            return [];
+        }
+    });
 
     // 3. Data States
     const [anakList, setAnakList] = useState(() => {
@@ -1076,13 +1092,57 @@ export default function AdminDashboard() {
     // ============================================================================
     // VIEW 2: MAIN ADMIN DASHBOARD LAYOUT
     // ============================================================================
+    const getUnreadBadge = (menuId, totalCount) => {
+        const lastSeen = Number(readSidebarBadges[menuId] || 0);
+        const diff = totalCount - lastSeen;
+        return diff > 0 ? diff : 0;
+    };
+
+    const handleMarkMenuRead = (menuId, totalCount) => {
+        setReadSidebarBadges((prev) => {
+            const next = { ...prev, [menuId]: totalCount };
+            localStorage.setItem('assholihin_admin_read_badges', JSON.stringify(next));
+            return next;
+        });
+    };
+
+    const unreadBellCount = notifications.filter((n) => !readNotifIds.includes(n.id)).length;
+
+    const handleToggleBellDropdown = () => {
+        const nextOpen = !showNotifDropdown;
+        setShowNotifDropdown(nextOpen);
+        if (nextOpen && notifications.length > 0) {
+            const allIds = notifications.map((n) => n.id);
+            setReadNotifIds(allIds);
+            localStorage.setItem('assholihin_admin_read_notifs', JSON.stringify(allIds));
+        }
+    };
+
     const menuItems = [
-        { id: 'overview', label: 'Ringkasan Dashboard', icon: Squares2X2Icon },
-        { id: 'donations', label: 'Donasi & Midtrans', icon: BanknotesIcon, badge: donationList.length },
-        { id: 'kas', label: 'Buku Kas PSAK 109', icon: ArrowsRightLeftIcon },
-        { id: 'anak', label: 'Anak & AI Adopsi', icon: SparklesIcon, badge: anakList.length },
-        { id: 'gallery', label: 'Galeri Kegiatan', icon: PhotoIcon, badge: galleryList.length },
-        { id: 'laporan', label: 'Laporan LPJ & Export', icon: DocumentChartBarIcon }
+        { id: 'overview', label: 'Ringkasan Dashboard', icon: Squares2X2Icon, total: 0, badge: 0 },
+        {
+            id: 'donations',
+            label: 'Donasi & Midtrans',
+            icon: BanknotesIcon,
+            total: donationList.length,
+            badge: getUnreadBadge('donations', donationList.length)
+        },
+        { id: 'kas', label: 'Buku Kas PSAK 109', icon: ArrowsRightLeftIcon, total: kasList.length, badge: 0 },
+        {
+            id: 'anak',
+            label: 'Anak & AI Adopsi',
+            icon: SparklesIcon,
+            total: anakList.length,
+            badge: getUnreadBadge('anak', anakList.length)
+        },
+        {
+            id: 'gallery',
+            label: 'Galeri Kegiatan',
+            icon: PhotoIcon,
+            total: galleryList.length,
+            badge: getUnreadBadge('gallery', galleryList.length)
+        },
+        { id: 'laporan', label: 'Laporan LPJ & Export', icon: DocumentChartBarIcon, total: 0, badge: 0 }
     ];
 
     const chartDataConfig = {
@@ -1154,7 +1214,11 @@ export default function AdminDashboard() {
     const eligibleAdoptionCount = anakList.filter((a) => evaluateChildAdoptionAI(a).score >= 75).length;
 
     return (
-        <div className="min-h-screen bg-surface flex flex-col lg:flex-row">
+        <div className="min-h-screen bg-surface bg-subtle-animated flex flex-col lg:flex-row relative overflow-hidden">
+            {/* Soft ambient background orbs */}
+            <div className="pointer-events-none fixed -top-24 right-10 w-80 h-80 rounded-full bg-emerald-200/25 blur-3xl animate-pulse-soft" />
+            <div className="pointer-events-none fixed bottom-10 right-1/3 w-72 h-72 rounded-full bg-amber-100/30 blur-3xl animate-pulse-soft" />
+
             {/* Toast Notification */}
             {toastMessage && (
                 <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-elevated border border-slate-700 flex items-center gap-2.5 text-xs sm:text-sm font-medium max-w-md">
@@ -1205,6 +1269,7 @@ export default function AdminDashboard() {
                                     type="button"
                                     onClick={() => {
                                         setActiveMenu(item.id);
+                                        handleMarkMenuRead(item.id, item.total);
                                         setMobileSidebarOpen(false);
                                     }}
                                     className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
@@ -1217,10 +1282,10 @@ export default function AdminDashboard() {
                                         <Icon className="w-5 h-5 shrink-0" />
                                         <span>{item.label}</span>
                                     </span>
-                                    {item.badge !== undefined && (
+                                    {item.badge > 0 && (
                                         <span
-                                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold tabular-nums ${
-                                                active ? 'bg-white text-primary' : 'bg-emerald-800 text-emerald-200'
+                                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold tabular-nums animate-pulse ${
+                                                active ? 'bg-white text-primary' : 'bg-emerald-500 text-white'
                                             }`}
                                         >
                                             {item.badge}
@@ -1276,20 +1341,20 @@ export default function AdminDashboard() {
                             <div className="relative">
                                 <button
                                     type="button"
-                                    onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+                                    onClick={handleToggleBellDropdown}
                                     className="relative p-2 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-colors"
                                     title="Notifikasi Donatur Masuk"
                                 >
                                     <BellAlertIcon className="w-5 h-5 text-primary" />
-                                    {notifications.length > 0 && (
-                                        <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-bold">
-                                            {notifications.length}
+                                    {unreadBellCount > 0 && (
+                                        <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-bold animate-pulse">
+                                            {unreadBellCount}
                                         </span>
                                     )}
                                 </button>
 
                                 {showNotifDropdown && (
-                                    <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-elevated z-50 overflow-hidden">
+                                    <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-elevated z-50 overflow-hidden animate-fade-up">
                                         <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                                             <span className="text-xs font-bold text-slate-900">
                                                 Notifikasi Donatur & Midtrans ({notifications.length})
@@ -1313,6 +1378,7 @@ export default function AdminDashboard() {
                                                         key={n.id}
                                                         onClick={() => {
                                                             setActiveMenu('donations');
+                                                            handleMarkMenuRead('donations', donationList.length);
                                                             setShowNotifDropdown(false);
                                                         }}
                                                         className="p-3.5 hover:bg-slate-50 cursor-pointer transition-colors"

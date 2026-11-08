@@ -1,21 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Navbar from './Navbar';
 import Footer from './Footer';
 import DonationModal from './DonationModal';
 import {
     UserCircleIcon,
-    CreditCardIcon,
     Cog6ToothIcon,
     ClockIcon,
     CheckBadgeIcon,
-    PlusIcon,
-    TrashIcon,
     ArrowDownTrayIcon,
     ShieldCheckIcon,
     LockClosedIcon,
     ArrowRightOnRectangleIcon,
     UserPlusIcon,
-    KeyIcon
+    KeyIcon,
+    CameraIcon,
+    TrashIcon,
+    XCircleIcon
 } from '@heroicons/react/24/outline';
 
 const SAMPLE_HISTORY = [
@@ -36,6 +36,44 @@ const SAMPLE_HISTORY = [
         status: 'Berhasil (Settlement)'
     }
 ];
+
+// Durasi waktu tunggu pembayaran sesuai standar Payment Gateway (15 menit = 900.000 ms)
+const PAYMENT_TIMEOUT_MS = 15 * 60 * 1000;
+
+function getOrderTimestampMs(item) {
+    if (item.created_at) {
+        const parsed = new Date(item.created_at).getTime();
+        if (!Number.isNaN(parsed)) return parsed;
+    }
+    if (item.id && item.id.startsWith('DONASI-')) {
+        const parts = item.id.split('-');
+        const ts = Number(parts[1]);
+        if (!Number.isNaN(ts) && ts > 1600000000000) return ts;
+    }
+    try {
+        const metaRaw = localStorage.getItem(`donasi_meta_${item.id}`);
+        if (metaRaw) {
+            const meta = JSON.parse(metaRaw);
+            if (meta?.created_at) {
+                const parsed = new Date(meta.created_at).getTime();
+                if (!Number.isNaN(parsed)) return parsed;
+            }
+        }
+    } catch {}
+    return null;
+}
+
+function getOrderExpiryMs(item) {
+    if (item.expires_at) {
+        const parsed = new Date(item.expires_at).getTime();
+        if (!Number.isNaN(parsed)) return parsed;
+    }
+    const createdMs = getOrderTimestampMs(item);
+    if (createdMs) {
+        return createdMs + PAYMENT_TIMEOUT_MS;
+    }
+    return null;
+}
 
 export default function DonorPortal() {
     const [authUser, setAuthUser] = useState(() => {
@@ -70,6 +108,8 @@ export default function DonorPortal() {
     const [activeTab, setActiveTab] = useState('profile');
     const [isDonateOpen, setIsDonateOpen] = useState(false);
     const [savedMessage, setSavedMessage] = useState('');
+    const [nowMs, setNowMs] = useState(Date.now());
+    const fileInputRef = useRef(null);
 
     const [historyList, setHistoryList] = useState(() => {
         try {
@@ -79,6 +119,57 @@ export default function DonorPortal() {
             return SAMPLE_HISTORY;
         }
     });
+
+    // Tick setiap 1 detik untuk hitung mundur (countdown) pembayaran & auto-cancel saat lewat batas waktu
+    useEffect(() => {
+        const timer = setInterval(() => {
+            const currentNow = Date.now();
+            setNowMs(currentNow);
+
+            try {
+                const saved = JSON.parse(localStorage.getItem('assholihin_donor_history') || '[]');
+                let hasExpiredChange = false;
+                const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
+
+                const updated = saved.map((item) => {
+                    const st = (item.status || '').toLowerCase();
+                    const isPending =
+                        !st.includes('berhasil') &&
+                        !st.includes('settlement') &&
+                        !st.includes('batal') &&
+                        !st.includes('gagal') &&
+                        !st.includes('kedaluwarsa');
+
+                    if (isPending) {
+                        const expiryMs = getOrderExpiryMs(item);
+                        if (expiryMs && currentNow >= expiryMs) {
+                            hasExpiredChange = true;
+                            // Panggil endpoint cancel payment gateway di background
+                            fetch(`${baseUrl}/landing/payment/cancel`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ order_id: item.id })
+                            }).catch(() => {});
+
+                            return {
+                                ...item,
+                                status: 'Gagal / Kedaluwarsa (Auto-Cancel)'
+                            };
+                        }
+                    }
+                    return item;
+                });
+
+                if (hasExpiredChange) {
+                    localStorage.setItem('assholihin_donor_history', JSON.stringify(updated));
+                    setHistoryList([...updated, ...SAMPLE_HISTORY]);
+                    window.dispatchEvent(new Event('assholihin-history-change'));
+                }
+            } catch {}
+        }, 1000);
+
+        return () => clearInterval(timer);
+    }, []);
 
     useEffect(() => {
         const refreshHistory = async () => {
@@ -92,12 +183,19 @@ export default function DonorPortal() {
                     if (key && key.startsWith('donasi_meta_')) {
                         try {
                             const meta = JSON.parse(localStorage.getItem(key));
-                            if (meta && meta.order_id && !saved.some(s => s.id === meta.order_id)) {
+                            if (meta && meta.order_id && !saved.some((s) => s.id === meta.order_id)) {
+                                const createdAt = meta.created_at || new Date().toISOString();
+                                const expiresAt =
+                                    meta.expires_at ||
+                                    new Date(new Date(createdAt).getTime() + PAYMENT_TIMEOUT_MS).toISOString();
+                                const isExpiredNow = Date.now() >= new Date(expiresAt).getTime();
+
                                 const formattedDate = new Intl.DateTimeFormat('id-ID', {
                                     day: '2-digit',
                                     month: 'short',
                                     year: 'numeric'
-                                }).format(new Date(meta.created_at || Date.now()));
+                                }).format(new Date(createdAt));
+
                                 saved.unshift({
                                     id: meta.order_id,
                                     donorName: meta.customer_name || 'Hamba Allah',
@@ -105,7 +203,13 @@ export default function DonorPortal() {
                                     program: meta.program || 'Santunan & Pendidikan Anak Yatim',
                                     amount: Number(meta.amount || 50000),
                                     method: (meta.payment_channel || 'MIDTRANS SNAP').replace(/_/g, ' '),
-                                    status: ['paid', 'success'].includes(meta.status) ? 'Berhasil (Settlement)' : 'Menunggu Pembayaran'
+                                    created_at: createdAt,
+                                    expires_at: expiresAt,
+                                    status: ['paid', 'success'].includes(meta.status)
+                                        ? 'Berhasil (Settlement)'
+                                        : isExpiredNow
+                                        ? 'Gagal / Kedaluwarsa (Auto-Cancel)'
+                                        : 'Menunggu Pembayaran'
                                 });
                             }
                         } catch {}
@@ -118,12 +222,19 @@ export default function DonorPortal() {
                     if (res.ok) {
                         const serverOrders = await res.json();
                         if (Array.isArray(serverOrders)) {
-                            serverOrders.forEach(so => {
+                            serverOrders.forEach((so) => {
+                                const createdAt = so.created_at || new Date().toISOString();
+                                const expiresAt =
+                                    so.expires_at ||
+                                    new Date(new Date(createdAt).getTime() + PAYMENT_TIMEOUT_MS).toISOString();
+                                const isExpiredNow = Date.now() >= new Date(expiresAt).getTime();
+
                                 const formattedDate = new Intl.DateTimeFormat('id-ID', {
                                     day: '2-digit',
                                     month: 'short',
                                     year: 'numeric'
-                                }).format(new Date(so.created_at || Date.now()));
+                                }).format(new Date(createdAt));
+
                                 const mapped = {
                                     id: so.order_id,
                                     donorName: so.customer_name || 'Hamba Allah',
@@ -131,13 +242,15 @@ export default function DonorPortal() {
                                     program: so.program || 'Santunan & Pendidikan Anak Yatim',
                                     amount: Number(so.amount || 50000),
                                     method: (so.payment_channel || 'MIDTRANS SNAP').replace(/_/g, ' '),
+                                    created_at: createdAt,
+                                    expires_at: expiresAt,
                                     status: ['paid', 'success'].includes(so.status)
                                         ? 'Berhasil (Settlement)'
-                                        : ['expired', 'failed', 'cancelled'].includes(so.status)
-                                        ? 'Dibatalkan / Kedaluwarsa'
+                                        : ['expired', 'failed', 'cancelled'].includes(so.status) || isExpiredNow
+                                        ? 'Gagal / Kedaluwarsa (Auto-Cancel)'
                                         : 'Menunggu Pembayaran'
                                 };
-                                const idx = saved.findIndex(item => item.id === mapped.id);
+                                const idx = saved.findIndex((item) => item.id === mapped.id);
                                 if (idx >= 0) {
                                     saved[idx] = { ...saved[idx], ...mapped };
                                 } else {
@@ -153,20 +266,30 @@ export default function DonorPortal() {
                     saved.map(async (item, index) => {
                         if (!item.id || item.id.startsWith('ORD-') || item.id.startsWith('MANUAL-')) return;
                         try {
-                            const statusRes = await fetch(`${baseUrl}/landing/payment/status/${encodeURIComponent(item.id)}?t=${Date.now()}`);
+                            const expiryMs = getOrderExpiryMs(item);
+                            const isExpiredLocal = expiryMs && Date.now() >= expiryMs;
+
+                            const statusRes = await fetch(
+                                `${baseUrl}/landing/payment/status/${encodeURIComponent(item.id)}?t=${Date.now()}`
+                            );
                             if (statusRes.ok) {
                                 const statusJson = await statusRes.json();
                                 if (statusJson?.success && statusJson?.data) {
                                     const d = statusJson.data;
+                                    const isPaidRemote = ['paid', 'success'].includes(d.status);
+                                    const isFailedRemote = ['expired', 'failed', 'cancelled'].includes(d.status);
+
                                     saved[index] = {
                                         ...item,
                                         donorName: item.donorName || d.customer_name || 'Hamba Allah',
                                         amount: Number(d.amount || item.amount),
                                         method: (d.payment_channel || item.method || 'MIDTRANS SNAP').replace(/_/g, ' '),
-                                        status: ['paid', 'success'].includes(d.status)
+                                        created_at: item.created_at || d.created_at,
+                                        expires_at: item.expires_at || d.expires_at,
+                                        status: isPaidRemote
                                             ? 'Berhasil (Settlement)'
-                                            : ['expired', 'failed', 'cancelled'].includes(d.status)
-                                            ? 'Dibatalkan / Kedaluwarsa'
+                                            : isFailedRemote || isExpiredLocal
+                                            ? 'Gagal / Kedaluwarsa (Auto-Cancel)'
                                             : 'Menunggu Pembayaran'
                                     };
                                 }
@@ -193,25 +316,6 @@ export default function DonorPortal() {
         };
     }, [activeTab]);
 
-    const [banks, setBanks] = useState(() => {
-        try {
-            const saved = localStorage.getItem('assholihin_donor_banks');
-            return saved ? JSON.parse(saved) : [];
-        } catch {
-            return [];
-        }
-    });
-
-    const [newBank, setNewBank] = useState({
-        bankName: 'Bank Syariah Indonesia (BSI)',
-        accountNumber: '',
-        accountHolder: ''
-    });
-
-    useEffect(() => {
-        localStorage.setItem('assholihin_donor_banks', JSON.stringify(banks));
-    }, [banks]);
-
     // Ambil daftar akun terdaftar di localStorage (dengan default demo account)
     const getRegisteredUsers = () => {
         const defaultUsers = [
@@ -224,6 +328,7 @@ export default function DonorPortal() {
                 password: 'password',
                 birthDate: '1985-05-15',
                 address: 'Candimulyo, Jombang',
+                avatarUrl: '',
                 alwaysAnonymous: false,
                 waReceiptNotification: true,
                 monthlyLpjEmail: true
@@ -237,6 +342,7 @@ export default function DonorPortal() {
                 password: 'password',
                 birthDate: '1990-08-20',
                 address: 'Jombang Kota',
+                avatarUrl: '',
                 alwaysAnonymous: true,
                 waReceiptNotification: true,
                 monthlyLpjEmail: true
@@ -254,9 +360,8 @@ export default function DonorPortal() {
                 localStorage.setItem('assholihin_registered_users', JSON.stringify(defaultUsers));
                 return defaultUsers;
             }
-            // Pastikan akun default selalu ada
-            defaultUsers.forEach(def => {
-                if (!parsed.some(p => p.email.toLowerCase() === def.email.toLowerCase())) {
+            defaultUsers.forEach((def) => {
+                if (!parsed.some((p) => p.email.toLowerCase() === def.email.toLowerCase())) {
                     parsed.push(def);
                 }
             });
@@ -264,6 +369,42 @@ export default function DonorPortal() {
         } catch {
             return defaultUsers;
         }
+    };
+
+    const persistUserUpdate = (updatedUser, msg = 'Data profil dan pengaturan berhasil diperbarui.') => {
+        setAuthUser(updatedUser);
+        localStorage.setItem('assholihin_auth_session', JSON.stringify(updatedUser));
+        const users = getRegisteredUsers().map((u) => (u.id === updatedUser.id ? updatedUser : u));
+        localStorage.setItem('assholihin_registered_users', JSON.stringify(users));
+        window.dispatchEvent(new Event('assholihin-auth-change'));
+        if (msg) {
+            setSavedMessage(msg);
+            setTimeout(() => setSavedMessage(''), 3500);
+        }
+    };
+
+    const handleAvatarUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file || !authUser) return;
+        if (file.size > 3 * 1024 * 1024) {
+            setSavedMessage('Ukuran foto profil maksimal 3 MB.');
+            setTimeout(() => setSavedMessage(''), 3500);
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result === 'string') {
+                const updated = { ...authUser, avatarUrl: reader.result };
+                persistUserUpdate(updated, 'Foto profil Anda berhasil diperbarui!');
+            }
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleRemoveAvatar = () => {
+        if (!authUser) return;
+        const updated = { ...authUser, avatarUrl: '' };
+        persistUserUpdate(updated, 'Foto profil telah dihapus.');
     };
 
     const handleRegisterSubmit = (e) => {
@@ -301,6 +442,7 @@ export default function DonorPortal() {
             password: registerData.password,
             birthDate: '',
             address: '',
+            avatarUrl: '',
             alwaysAnonymous: registerData.alwaysAnonymous,
             waReceiptNotification: true,
             monthlyLpjEmail: true
@@ -347,34 +489,26 @@ export default function DonorPortal() {
     const handleProfileSave = (e) => {
         e.preventDefault();
         if (!authUser) return;
-
-        // Simpan ke session aktif & daftar user
-        localStorage.setItem('assholihin_auth_session', JSON.stringify(authUser));
-        const users = getRegisteredUsers().map((u) => (u.id === authUser.id ? authUser : u));
-        localStorage.setItem('assholihin_registered_users', JSON.stringify(users));
-        window.dispatchEvent(new Event('assholihin-auth-change'));
-
-        setSavedMessage('Data profil dan pengaturan berhasil diperbarui.');
-        setTimeout(() => setSavedMessage(''), 3500);
+        persistUserUpdate(authUser, 'Data profil dan pengaturan berhasil diperbarui.');
     };
 
-    const handleAddBank = (e) => {
-        e.preventDefault();
-        if (!newBank.accountNumber || !newBank.accountHolder) return;
-        const entry = {
-            id: Date.now(),
-            bankName: newBank.bankName,
-            accountNumber: newBank.accountNumber,
-            accountHolder: newBank.accountHolder,
-            isPrimary: banks.length === 0,
-            purpose: 'Rekening Terdaftar Donatur (Kafalah & Refund)'
-        };
-        setBanks([...banks, entry]);
-        setNewBank({ bankName: 'Bank Syariah Indonesia (BSI)', accountNumber: '', accountHolder: '' });
-    };
+    const handleManualCancelOrder = async (orderId) => {
+        try {
+            const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
+            await fetch(`${baseUrl}/landing/payment/cancel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order_id: orderId })
+            }).catch(() => {});
 
-    const handleRemoveBank = (id) => {
-        setBanks(banks.filter((b) => b.id !== id));
+            const saved = JSON.parse(localStorage.getItem('assholihin_donor_history') || '[]');
+            const updated = saved.map((item) =>
+                item.id === orderId ? { ...item, status: 'Dibatalkan oleh Donatur' } : item
+            );
+            localStorage.setItem('assholihin_donor_history', JSON.stringify(updated));
+            setHistoryList([...updated, ...SAMPLE_HISTORY]);
+            window.dispatchEvent(new Event('assholihin-history-change'));
+        } catch {}
     };
 
     const formatIDR = (val) => {
@@ -385,26 +519,39 @@ export default function DonorPortal() {
         }).format(val);
     };
 
+    const formatCountdown = (remainingMs) => {
+        if (remainingMs <= 0) return '00:00';
+        const totalSeconds = Math.floor(remainingMs / 1000);
+        const mins = Math.floor(totalSeconds / 60);
+        const secs = totalSeconds % 60;
+        return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    };
+
+    // Rekening tersimpan sudah dihapus sesuai permintaan; menyisakan 3 menu inti
     const navTabs = [
-        { id: 'profile', label: 'Data Profil & Identitas', icon: UserCircleIcon },
-        { id: 'banks', label: 'No. Rekening Tersimpan', icon: CreditCardIcon },
+        { id: 'profile', label: 'Data Profil & Foto', icon: UserCircleIcon },
         { id: 'settings', label: 'Pengaturan Web & Privasi', icon: Cog6ToothIcon },
         { id: 'history', label: 'Riwayat & E-Kwitansi', icon: ClockIcon }
     ];
 
     return (
-        <div className="min-h-screen flex flex-col bg-surface">
+        <div className="min-h-screen flex flex-col bg-surface bg-subtle-animated relative overflow-hidden">
+            {/* Ambient animated background orbs */}
+            <div className="pointer-events-none fixed -top-28 -left-28 w-80 h-80 rounded-full bg-emerald-200/30 blur-3xl animate-pulse-soft" />
+            <div className="pointer-events-none fixed bottom-10 -right-24 w-96 h-96 rounded-full bg-amber-100/40 blur-3xl animate-pulse-soft" />
+
             <Navbar onDonateClick={() => setIsDonateOpen(true)} />
 
-            <main className="flex-1 py-10 lg:py-16">
+            <main className="flex-1 py-10 lg:py-14 relative z-10">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     {!authUser ? (
                         /* BELUM LOGIN: TAMPILKAN HALAMAN MASUK / DAFTAR AKUN DONATUR */
-                        <div className="max-w-4xl mx-auto">
+                        <div className="max-w-4xl mx-auto animate-fade-up">
                             <div className="grid grid-cols-1 lg:grid-cols-12 rounded-2xl bg-white border border-slate-200/90 shadow-elevated overflow-hidden">
                                 {/* Left Info Column (5 Cols) */}
-                                <div className="lg:col-span-5 bg-primary p-6 sm:p-8 text-white flex flex-col justify-between">
-                                    <div className="space-y-4">
+                                <div className="lg:col-span-5 bg-primary p-6 sm:p-8 text-white flex flex-col justify-between relative overflow-hidden">
+                                    <div className="pointer-events-none absolute -bottom-16 -right-16 w-48 h-48 rounded-full bg-emerald-400/15 blur-2xl animate-pulse-soft" />
+                                    <div className="space-y-4 relative z-10">
                                         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-emerald-100 text-xs font-semibold">
                                             <ShieldCheckIcon className="w-4 h-4" />
                                             <span>Portal Resmi Muzakki & Donatur</span>
@@ -413,14 +560,14 @@ export default function DonorPortal() {
                                             Akun Donatur Panti Asuhan As-Sholihin
                                         </h1>
                                         <p className="text-xs sm:text-sm text-emerald-100 leading-relaxed">
-                                            Daftarkan akun Anda untuk kemudahan mengelola profil donatur, menyimpan nomor rekening, mengatur privasi nama (Hamba Allah), serta mengunduh E-Kwitansi resmi setiap berdonasi.
+                                            Kelola foto dan identitas profil donatur, atur privasi nama (Hamba Allah), serta pantau status pembayaran & unduh E-Kwitansi resmi secara real-time.
                                         </p>
                                     </div>
 
-                                    <div className="mt-8 pt-6 border-t border-white/15 space-y-2.5 text-xs text-emerald-100">
+                                    <div className="mt-8 pt-6 border-t border-white/15 space-y-2.5 text-xs text-emerald-100 relative z-10">
                                         <div className="flex items-center gap-2">
                                             <CheckBadgeIcon className="w-4 h-4 text-emerald-300 shrink-0" />
-                                            <span>Simpan Data Profil & Rekening Bank</span>
+                                            <span>Upload Foto Profil & Identitas Donatur</span>
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <CheckBadgeIcon className="w-4 h-4 text-emerald-300 shrink-0" />
@@ -428,7 +575,7 @@ export default function DonorPortal() {
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <CheckBadgeIcon className="w-4 h-4 text-emerald-300 shrink-0" />
-                                            <span>Arsip Riwayat Donasi & Laporan E-LPJ</span>
+                                            <span>Pantau Timer Pembayaran & Unduh E-Kwitansi</span>
                                         </div>
                                     </div>
                                 </div>
@@ -681,16 +828,42 @@ export default function DonorPortal() {
                         </div>
                     ) : (
                         /* SUDAH LOGIN: TAMPILKAN DASHBOARD AKUN DONATUR */
-                        <>
-                            {/* Top User Banner */}
+                        <div className="animate-fade-up">
+                            {/* Top User Banner with Direct Photo Upload */}
                             <div className="card-surface p-6 sm:p-8 mb-8 bg-white">
                                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                                     <div className="flex items-center gap-4">
-                                        <div className="w-14 h-14 rounded-full bg-primary text-white font-heading font-bold text-xl flex items-center justify-center shrink-0">
-                                            {authUser.fullName
-                                                ? authUser.fullName.substring(0, 2).toUpperCase()
-                                                : 'DN'}
+                                        <div className="relative group shrink-0">
+                                            {authUser.avatarUrl ? (
+                                                <img
+                                                    src={authUser.avatarUrl}
+                                                    alt={authUser.fullName}
+                                                    className="w-16 h-16 rounded-full object-cover border-2 border-primary/30 shadow-xs"
+                                                />
+                                            ) : (
+                                                <div className="w-16 h-16 rounded-full bg-primary text-white font-heading font-bold text-xl flex items-center justify-center">
+                                                    {authUser.fullName
+                                                        ? authUser.fullName.substring(0, 2).toUpperCase()
+                                                        : 'DN'}
+                                                </div>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => fileInputRef.current?.click()}
+                                                title="Ganti Foto Profil"
+                                                className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-white border border-slate-200 shadow-xs flex items-center justify-center text-primary hover:bg-primary hover:text-white transition-all"
+                                            >
+                                                <CameraIcon className="w-4 h-4" />
+                                            </button>
+                                            <input
+                                                ref={fileInputRef}
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={handleAvatarUpload}
+                                                className="hidden"
+                                            />
                                         </div>
+
                                         <div>
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
@@ -745,9 +918,9 @@ export default function DonorPortal() {
                                                 key={tab.id}
                                                 type="button"
                                                 onClick={() => setActiveTab(tab.id)}
-                                                className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-lg text-xs sm:text-sm font-semibold transition-colors text-left ${
+                                                className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all text-left ${
                                                     isActive
-                                                        ? 'bg-primary text-white'
+                                                        ? 'bg-primary text-white shadow-2xs'
                                                         : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                                                 }`}
                                             >
@@ -761,22 +934,70 @@ export default function DonorPortal() {
                                 {/* Content Panel (9 Cols) */}
                                 <div className="lg:col-span-9 card-surface p-6 sm:p-8 bg-white">
                                     {savedMessage && (
-                                        <div className="mb-6 p-3.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm font-medium flex items-center gap-2">
+                                        <div className="mb-6 p-3.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm font-medium flex items-center gap-2 animate-fade-up">
                                             <ShieldCheckIcon className="w-5 h-5 text-emerald-600 shrink-0" />
                                             <span>{savedMessage}</span>
                                         </div>
                                     )}
 
-                                    {/* TAB 1: DATA PROFIL */}
+                                    {/* TAB 1: DATA PROFIL & UPLOAD FOTO */}
                                     {activeTab === 'profile' && (
-                                        <form onSubmit={handleProfileSave} className="space-y-6">
+                                        <form onSubmit={handleProfileSave} className="space-y-6 animate-fade-up">
                                             <div className="border-b border-slate-100 pb-4">
                                                 <h2 className="text-lg font-bold text-slate-900">
                                                     Data Profil & Identitas Donatur
                                                 </h2>
                                                 <p className="text-xs text-slate-500 mt-0.5">
-                                                    Informasi ini digunakan untuk pengisian otomatis saat checkout donasi dan penerbitan E-Kwitansi resmi.
+                                                    Unggah foto profil Anda dan lengkapi identitas untuk pengisian otomatis saat checkout donasi.
                                                 </p>
+                                            </div>
+
+                                            {/* Photo Upload Card */}
+                                            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                <div className="flex items-center gap-4">
+                                                    {authUser.avatarUrl ? (
+                                                        <img
+                                                            src={authUser.avatarUrl}
+                                                            alt={authUser.fullName}
+                                                            className="w-16 h-16 rounded-full object-cover border-2 border-primary/30"
+                                                        />
+                                                    ) : (
+                                                        <div className="w-16 h-16 rounded-full bg-primary-light text-primary font-heading font-bold text-xl flex items-center justify-center">
+                                                            {authUser.fullName
+                                                                ? authUser.fullName.substring(0, 2).toUpperCase()
+                                                                : 'DN'}
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        <h3 className="text-sm font-bold text-slate-900">
+                                                            Foto Profil Donatur
+                                                        </h3>
+                                                        <p className="text-xs text-slate-500 mt-0.5">
+                                                            Format JPG, PNG, atau WEBP (Maksimal 3 MB).
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => fileInputRef.current?.click()}
+                                                        className="btn-outline py-2 px-3.5 text-xs bg-white"
+                                                    >
+                                                        <CameraIcon className="w-4 h-4 text-primary" />
+                                                        <span>Upload Foto Baru</span>
+                                                    </button>
+                                                    {authUser.avatarUrl && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleRemoveAvatar}
+                                                            className="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors"
+                                                        >
+                                                            <TrashIcon className="w-4 h-4" />
+                                                            <span>Hapus</span>
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
 
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -878,141 +1099,9 @@ export default function DonorPortal() {
                                         </form>
                                     )}
 
-                                    {/* TAB 2: NOMOR REKENING TERSIMPAN */}
-                                    {activeTab === 'banks' && (
-                                        <div className="space-y-6">
-                                            <div className="border-b border-slate-100 pb-4">
-                                                <h2 className="text-lg font-bold text-slate-900">
-                                                    Data Rekening Bank & Metode Pembayaran Donatur
-                                                </h2>
-                                                <p className="text-xs text-slate-500 mt-0.5">
-                                                    Digunakan untuk pencocokan mutasi transfer manual, pengingat Kafalah Orang Tua Asuh bulanan, serta rekening tujuan sah apabila terjadi pengajuan pengembalian kelebihan transfer (refund).
-                                                </p>
-                                            </div>
-
-                                            {banks.length === 0 ? (
-                                                <div className="p-6 rounded-xl border border-dashed border-slate-300 text-center text-xs sm:text-sm text-slate-500">
-                                                    Belum ada nomor rekening bank yang disimpan. Tambahkan rekening Anda pada formulir di bawah ini.
-                                                </div>
-                                            ) : (
-                                                <div className="space-y-3">
-                                                    {banks.map((b) => (
-                                                        <div
-                                                            key={b.id}
-                                                            className="p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/50"
-                                                        >
-                                                            <div>
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-sm font-bold text-slate-900">
-                                                                        {b.bankName}
-                                                                    </span>
-                                                                    {b.isPrimary && (
-                                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                                                                            Rekening Utama
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                <p className="text-sm font-mono font-semibold text-slate-700 mt-1">
-                                                                    No. Rek: {b.accountNumber} — a.n. {b.accountHolder}
-                                                                </p>
-                                                                <p className="text-xs text-slate-500 mt-0.5">{b.purpose}</p>
-                                                            </div>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleRemoveBank(b.id)}
-                                                                className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 self-start sm:self-center"
-                                                            >
-                                                                <TrashIcon className="w-4 h-4" />
-                                                                <span>Hapus</span>
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-
-                                            {/* Add New Bank Form */}
-                                            <form onSubmit={handleAddBank} className="pt-6 border-t border-slate-100 space-y-4">
-                                                <h3 className="text-sm font-bold text-slate-900">
-                                                    + Tambah Nomor Rekening Baru
-                                                </h3>
-                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                                    <div>
-                                                        <label className="block text-xs font-semibold text-slate-600 mb-1">
-                                                            Nama Bank
-                                                        </label>
-                                                        <select
-                                                            value={newBank.bankName}
-                                                            onChange={(e) =>
-                                                                setNewBank({ ...newBank, bankName: e.target.value })
-                                                            }
-                                                            className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-900"
-                                                        >
-                                                            <option value="Bank Syariah Indonesia (BSI)">
-                                                                Bank Syariah Indonesia (BSI)
-                                                            </option>
-                                                            <option value="Bank Central Asia (BCA)">
-                                                                Bank Central Asia (BCA)
-                                                            </option>
-                                                            <option value="Bank Mandiri">Bank Mandiri</option>
-                                                            <option value="Bank Rakyat Indonesia (BRI)">
-                                                                Bank Rakyat Indonesia (BRI)
-                                                            </option>
-                                                            <option value="Bank Negara Indonesia (BNI)">
-                                                                Bank Negara Indonesia (BNI)
-                                                            </option>
-                                                            <option value="Bank Jatim / Lainnya">
-                                                                Bank Jatim / Lainnya
-                                                            </option>
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-xs font-semibold text-slate-600 mb-1">
-                                                            Nomor Rekening
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            required
-                                                            value={newBank.accountNumber}
-                                                            onChange={(e) =>
-                                                                setNewBank({
-                                                                    ...newBank,
-                                                                    accountNumber: e.target.value
-                                                                })
-                                                            }
-                                                            placeholder="Contoh: 7148899231"
-                                                            className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 font-mono"
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-xs font-semibold text-slate-600 mb-1">
-                                                            Nama Pemilik Rekening
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            required
-                                                            value={newBank.accountHolder}
-                                                            onChange={(e) =>
-                                                                setNewBank({
-                                                                    ...newBank,
-                                                                    accountHolder: e.target.value
-                                                                })
-                                                            }
-                                                            placeholder="Sesuai buku tabungan"
-                                                            className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-900"
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <button type="submit" className="btn-outline">
-                                                    <PlusIcon className="w-4 h-4" />
-                                                    <span>Simpan Rekening</span>
-                                                </button>
-                                            </form>
-                                        </div>
-                                    )}
-
-                                    {/* TAB 3: PENGATURAN WEB & PRIVASI */}
+                                    {/* TAB 2: PENGATURAN WEB & PRIVASI */}
                                     {activeTab === 'settings' && (
-                                        <form onSubmit={handleProfileSave} className="space-y-6">
+                                        <form onSubmit={handleProfileSave} className="space-y-6 animate-fade-up">
                                             <div className="border-b border-slate-100 pb-4">
                                                 <h2 className="text-lg font-bold text-slate-900">
                                                     Pengaturan Akun Web & Privasi Donatur
@@ -1023,7 +1112,7 @@ export default function DonorPortal() {
                                             </div>
 
                                             <div className="space-y-4">
-                                                <label className="flex items-start justify-between gap-4 p-4 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50/60">
+                                                <label className="flex items-start justify-between gap-4 p-4 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50/60 transition-colors">
                                                     <div>
                                                         <span className="text-sm font-bold text-slate-900 block">
                                                             Selalu Samarkan Nama Saya (Mode Hamba Allah Default)
@@ -1045,7 +1134,7 @@ export default function DonorPortal() {
                                                     />
                                                 </label>
 
-                                                <label className="flex items-start justify-between gap-4 p-4 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50/60">
+                                                <label className="flex items-start justify-between gap-4 p-4 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50/60 transition-colors">
                                                     <div>
                                                         <span className="text-sm font-bold text-slate-900 block">
                                                             Kirim E-Kwitansi & Doa Santri Otomatis via WhatsApp
@@ -1067,7 +1156,7 @@ export default function DonorPortal() {
                                                     />
                                                 </label>
 
-                                                <label className="flex items-start justify-between gap-4 p-4 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50/60">
+                                                <label className="flex items-start justify-between gap-4 p-4 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50/60 transition-colors">
                                                     <div>
                                                         <span className="text-sm font-bold text-slate-900 block">
                                                             Berlangganan Laporan Keuangan Bulanan (E-LPJ PDF)
@@ -1098,16 +1187,16 @@ export default function DonorPortal() {
                                         </form>
                                     )}
 
-                                    {/* TAB 4: RIWAYAT DONASI & E-KWITANSI */}
+                                    {/* TAB 3: RIWAYAT DONASI, WAKTU TUNGGU PAYMENT GATEWAY & E-KWITANSI */}
                                     {activeTab === 'history' && (
-                                        <div className="space-y-6">
+                                        <div className="space-y-6 animate-fade-up">
                                             <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                                 <div>
                                                     <h2 className="text-lg font-bold text-slate-900">
                                                         Riwayat Donasi & Unduh E-Kwitansi Resmi
                                                     </h2>
                                                     <p className="text-xs text-slate-500 mt-0.5">
-                                                        Daftar kontribusi Anda yang telah tercatat di Buku Kas Panti Asuhan As-Sholihin.
+                                                        Batas waktu pembayaran Payment Gateway adalah <strong>15 menit</strong>. Transaksi yang melewati batas waktu akan otomatis dibatalkan.
                                                     </p>
                                                 </div>
                                             </div>
@@ -1121,16 +1210,25 @@ export default function DonorPortal() {
                                                             <th className="py-3 px-4">Program Akad</th>
                                                             <th className="py-3 px-4">Nominal</th>
                                                             <th className="py-3 px-4">Metode</th>
-                                                            <th className="py-3 px-4">Status</th>
-                                                            <th className="py-3 pl-4 text-right">E-Kwitansi</th>
+                                                            <th className="py-3 px-4">Status & Waktu Bayar</th>
+                                                            <th className="py-3 pl-4 text-right">Aksi / E-Kwitansi</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
                                                         {historyList.map((item) => {
-                                                            const isPaid = (item.status || '').toLowerCase().includes('berhasil') || (item.status || '').toLowerCase().includes('settlement');
-                                                            const isFailed = (item.status || '').toLowerCase().includes('batal') || (item.status || '').toLowerCase().includes('kedaluwarsa');
+                                                            const st = (item.status || '').toLowerCase();
+                                                            const isPaid = st.includes('berhasil') || st.includes('settlement');
+                                                            const expiryMs = getOrderExpiryMs(item);
+                                                            const remainingMs = expiryMs ? expiryMs - nowMs : null;
+                                                            const isTimedOut = !isPaid && remainingMs !== null && remainingMs <= 0;
+                                                            const isFailed =
+                                                                st.includes('batal') ||
+                                                                st.includes('gagal') ||
+                                                                st.includes('kedaluwarsa') ||
+                                                                isTimedOut;
+
                                                             return (
-                                                                <tr key={item.id} className="hover:bg-slate-50/70">
+                                                                <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
                                                                     <td className="py-3.5 pr-4 font-mono font-semibold text-slate-800">
                                                                         {item.id}
                                                                     </td>
@@ -1145,27 +1243,77 @@ export default function DonorPortal() {
                                                                         {item.method}
                                                                     </td>
                                                                     <td className="py-3.5 px-4">
-                                                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${
-                                                                            isPaid
-                                                                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                                                                : isFailed
-                                                                                ? 'bg-red-50 text-red-700 border border-red-200'
-                                                                                : 'bg-amber-50 text-amber-700 border border-amber-200'
-                                                                        }`}>
-                                                                            <span className={`w-1.5 h-1.5 rounded-full ${
-                                                                                isPaid ? 'bg-emerald-500' : isFailed ? 'bg-red-500' : 'bg-amber-500 animate-pulse'
-                                                                            }`} />
-                                                                            {item.status || 'Menunggu Pembayaran'}
-                                                                        </span>
+                                                                        <div className="flex flex-col items-start gap-1">
+                                                                            <span
+                                                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${
+                                                                                    isPaid
+                                                                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                                                        : isFailed
+                                                                                        ? 'bg-red-50 text-red-700 border border-red-200'
+                                                                                        : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                                                                }`}
+                                                                            >
+                                                                                <span
+                                                                                    className={`w-1.5 h-1.5 rounded-full ${
+                                                                                        isPaid
+                                                                                            ? 'bg-emerald-500'
+                                                                                            : isFailed
+                                                                                            ? 'bg-red-500'
+                                                                                            : 'bg-amber-500 animate-pulse'
+                                                                                    }`}
+                                                                                />
+                                                                                {isPaid
+                                                                                    ? 'Berhasil (Settlement)'
+                                                                                    : isFailed
+                                                                                    ? 'Gagal / Dibatalkan'
+                                                                                    : 'Menunggu Pembayaran'}
+                                                                            </span>
+
+                                                                            {!isPaid && !isFailed && remainingMs !== null && remainingMs > 0 && (
+                                                                                <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold text-amber-700 bg-amber-100/70 px-2 py-0.5 rounded">
+                                                                                    <ClockIcon className="w-3.5 h-3.5" />
+                                                                                    <span>Sisa waktu: {formatCountdown(remainingMs)}</span>
+                                                                                </span>
+                                                                            )}
+
+                                                                            {isFailed && (
+                                                                                <span className="text-[10px] text-red-600 font-medium">
+                                                                                    Melewati batas waktu / dibatalkan
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
                                                                     </td>
                                                                     <td className="py-3.5 pl-4 text-right">
-                                                                        <a
-                                                                            href={`/success?order_id=${item.id}`}
-                                                                            className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-                                                                        >
-                                                                            <ArrowDownTrayIcon className="w-4 h-4" />
-                                                                            <span>Lihat / Cetak PDF</span>
-                                                                        </a>
+                                                                        {isPaid ? (
+                                                                            <a
+                                                                                href={`/success?order_id=${item.id}`}
+                                                                                className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                                                                            >
+                                                                                <ArrowDownTrayIcon className="w-4 h-4" />
+                                                                                <span>Unduh PDF</span>
+                                                                            </a>
+                                                                        ) : isFailed ? (
+                                                                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400">
+                                                                                <XCircleIcon className="w-4 h-4 text-red-400" />
+                                                                                <span>Tidak Berlaku</span>
+                                                                            </span>
+                                                                        ) : (
+                                                                            <div className="flex items-center justify-end gap-2">
+                                                                                <a
+                                                                                    href={`/pending?order_id=${item.id}`}
+                                                                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary text-white text-[11px] font-semibold hover:bg-primary-hover transition-colors"
+                                                                                >
+                                                                                    <span>Bayar</span>
+                                                                                </a>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleManualCancelOrder(item.id)}
+                                                                                    className="text-[11px] font-semibold text-red-600 hover:underline"
+                                                                                >
+                                                                                    Batalkan
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
                                                                     </td>
                                                                 </tr>
                                                             );
@@ -1177,7 +1325,7 @@ export default function DonorPortal() {
                                     )}
                                 </div>
                             </div>
-                        </>
+                        </div>
                     )}
                 </div>
             </main>

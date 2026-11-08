@@ -58,8 +58,9 @@ export default function Programs({ onSelectProgram }) {
     };
 
     return (
-        <section id="programs" className="py-12 lg:py-16 bg-surface border-b border-slate-200/70">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section id="programs" className="py-12 lg:py-16 bg-surface bg-subtle-animated border-b border-slate-200/70 relative overflow-hidden">
+            <div className="pointer-events-none absolute top-10 -right-24 w-72 h-72 rounded-full bg-emerald-200/20 blur-3xl animate-pulse-soft" />
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
                 <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 gap-4">
                     <div>
                         <span className="text-xs font-bold uppercase tracking-wider text-primary">

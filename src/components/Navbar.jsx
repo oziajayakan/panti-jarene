@@ -93,9 +93,17 @@ export default function Navbar({ onDonateClick }) {
                     <div className="hidden md:flex items-center gap-2.5">
                         <Link
                             to="/portal-donatur"
-                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50 transition-colors"
+                            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50 transition-all hover:-translate-y-0.5"
                         >
-                            <UserCircleIcon className="w-4 h-4 text-primary" />
+                            {loggedUser?.avatarUrl ? (
+                                <img
+                                    src={loggedUser.avatarUrl}
+                                    alt={loggedUser.fullName}
+                                    className="w-5 h-5 rounded-full object-cover border border-primary/40"
+                                />
+                            ) : (
+                                <UserCircleIcon className="w-4 h-4 text-primary" />
+                            )}
                             <span>
                                 {loggedUser ? loggedUser.fullName.split(' ')[0] : 'Portal Donatur'}
                             </span>
@@ -140,7 +148,15 @@ export default function Navbar({ onDonateClick }) {
                                 onClick={() => setIsOpen(false)}
                                 className="btn-outline w-full justify-center py-2 text-xs"
                             >
-                                <UserCircleIcon className="w-4 h-4 text-primary" />
+                                {loggedUser?.avatarUrl ? (
+                                    <img
+                                        src={loggedUser.avatarUrl}
+                                        alt={loggedUser.fullName}
+                                        className="w-5 h-5 rounded-full object-cover border border-primary/40"
+                                    />
+                                ) : (
+                                    <UserCircleIcon className="w-4 h-4 text-primary" />
+                                )}
                                 <span>{loggedUser ? loggedUser.fullName : 'Portal Donatur'}</span>
                             </Link>
                             <button

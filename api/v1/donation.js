@@ -40,6 +40,10 @@ export default async function handler(req, res) {
                 first_name: donorName,
                 email: donorEmail,
                 phone: phone
+            },
+            expiry: {
+                unit: 'minutes',
+                duration: 15
             }
         };
 
@@ -63,6 +67,9 @@ export default async function handler(req, res) {
             });
         }
 
+        const nowIso = new Date().toISOString();
+        const expiresAtIso = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
         const orderRecord = {
             order_id: orderId,
             customer_name: donorName,
@@ -74,7 +81,8 @@ export default async function handler(req, res) {
             payment_url: data.redirect_url,
             token: data.token,
             payment_channel: 'MIDTRANS SNAP',
-            created_at: new Date().toISOString()
+            created_at: nowIso,
+            expires_at: expiresAtIso
         };
 
         ordersStore.set(orderId, orderRecord);
@@ -97,10 +105,12 @@ export default async function handler(req, res) {
             token: data.token,
             payment_url: data.redirect_url,
             invoice_number: orderId,
+            expires_at: expiresAtIso,
             data: {
                 token: data.token,
                 payment_url: data.redirect_url,
-                order_id: orderId
+                order_id: orderId,
+                expires_at: expiresAtIso
             }
         });
     } catch (error) {
