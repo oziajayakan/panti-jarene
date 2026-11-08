@@ -15,6 +15,24 @@ export default function RecentDonations() {
 
     useEffect(() => {
         const fetchDonations = async () => {
+            let localItems = [];
+            try {
+                const raw = localStorage.getItem('assholihin_donor_history');
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) {
+                        localItems = parsed.map((d, idx) => ({
+                            id: d.id || `local-${idx}`,
+                            name: d.donorName || 'Hamba Allah',
+                            initial: (d.donorName || 'HA').substring(0, 2).toUpperCase(),
+                            amount: Number(d.amount || 50000),
+                            time_ago: d.date || 'Baru saja',
+                            message: d.program || 'Donasi Panti Asuhan As-Sholihin'
+                        }));
+                    }
+                }
+            } catch {}
+
             try {
                 const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
                 const response = await axios.get(`${baseUrl}/landing/donations`);
@@ -25,16 +43,23 @@ export default function RecentDonations() {
                     data = response.data.data;
                 }
                 if (data.length > 0) {
-                    setDonations(data.slice(0, 8));
+                    setDonations([...localItems, ...data].slice(0, 8));
+                    return;
                 }
             } catch {
                 // Keep clean fallback data if API is offline
             }
+
+            setDonations([...localItems, ...FALLBACK_DONATIONS].slice(0, 8));
         };
 
         fetchDonations();
         const interval = setInterval(fetchDonations, 30000);
-        return () => clearInterval(interval);
+        window.addEventListener('assholihin-data-updated', fetchDonations);
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('assholihin-data-updated', fetchDonations);
+        };
     }, []);
 
     const formatAmount = (amount) => {

@@ -97,6 +97,7 @@ export default function Footer() {
                             <li><a href="#foster" className="hover:text-white transition-colors">Orang Tua Asuh</a></li>
                             <li><a href="#transparency" className="hover:text-white transition-colors">Transparansi Kas</a></li>
                             <li><Link to="/portal-donatur" className="hover:text-white transition-colors">Portal Akun Donatur</Link></li>
+                            <li><Link to="/admin" className="hover:text-emerald-400 text-emerald-300 font-semibold transition-colors">Dashboard Admin Panti</Link></li>
                         </ul>
                     </div>
 

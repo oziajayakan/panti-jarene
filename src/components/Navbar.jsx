@@ -76,6 +76,13 @@ export default function Navbar({ onDonateClick }) {
                         </span>
                     </div>
                     <div className="flex items-center gap-4">
+                        <Link
+                            to="/admin"
+                            className="inline-flex items-center gap-1 text-emerald-100 hover:text-white font-semibold transition-colors"
+                        >
+                            <span>Panel Pengurus</span>
+                        </Link>
+                        <span className="text-emerald-300/60">|</span>
                         <a
                             href={isHome ? '#zakat' : '/#zakat'}
                             className="hidden sm:inline-flex items-center gap-1 text-emerald-100 hover:text-white font-medium transition-colors"

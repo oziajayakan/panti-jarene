@@ -72,10 +72,20 @@ export default function Gallery() {
     useEffect(() => {
         const fetchGallery = async () => {
             try {
+                const adminGalleryRaw = localStorage.getItem('assholihin_admin_gallery');
+                if (adminGalleryRaw) {
+                    const parsed = JSON.parse(adminGalleryRaw);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        setGallery(parsed);
+                        return;
+                    }
+                }
+            } catch {}
+
+            try {
                 const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
                 const response = await axios.get(`${baseUrl}/landing/gallery`);
                 if (Array.isArray(response.data) && response.data.length > 0) {
-                    // Pastikan gambar dari API tidak duplikat semua
                     const uniqueImages = new Set(response.data.map((i) => i.image_url));
                     if (uniqueImages.size > 1) {
                         setGallery(response.data);
@@ -87,6 +97,8 @@ export default function Gallery() {
         };
 
         fetchGallery();
+        window.addEventListener('assholihin-data-updated', fetchGallery);
+        return () => window.removeEventListener('assholihin-data-updated', fetchGallery);
     }, []);
 
     const categories = [

@@ -42,11 +42,34 @@ export default function useLandingData() {
                 console.error("Error fetching landing data:", err);
                 setError(err);
             } finally {
+                // Sinkronkan juga dari data Dashboard Admin React (localStorage)
+                try {
+                    const anakRaw = JSON.parse(localStorage.getItem('assholihin_admin_anak') || '[]');
+                    const kasRaw = JSON.parse(localStorage.getItem('assholihin_admin_kas') || '[]');
+                    const donasiRaw = JSON.parse(localStorage.getItem('assholihin_donor_history') || '[]');
+
+                    const settledDonations = donasiRaw
+                        .filter(d => (d.status || '').toLowerCase().includes('berhasil') || (d.status || '').toLowerCase().includes('settlement'))
+                        .reduce((acc, cur) => acc + Number(cur.amount || 0), 0);
+
+                    const kasMasuk = kasRaw.filter(k => k.jenis === 'MASUK').reduce((a, c) => a + Number(c.nominal || 0), 0);
+                    const kasKeluar = kasRaw.filter(k => k.jenis === 'KELUAR').reduce((a, c) => a + Number(c.nominal || 0), 0);
+
+                    setStats(prev => ({
+                        ...prev,
+                        anak: anakRaw.length > 0 ? anakRaw.length : (prev.anak || 45),
+                        pemasukan: (prev.pemasukan || 218550000) + settledDonations + kasMasuk,
+                        pengeluaran: (prev.pengeluaran || 183000000) + kasKeluar,
+                        total_keuangan: (prev.total_keuangan || 84620000) + settledDonations + kasMasuk - kasKeluar
+                    }));
+                } catch {}
                 setLoading(false);
             }
         };
 
         fetchData();
+        window.addEventListener('assholihin-data-updated', fetchData);
+        return () => window.removeEventListener('assholihin-data-updated', fetchData);
     }, [year]);
 
     const formatCurrency = (value) => {
