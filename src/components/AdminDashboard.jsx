@@ -1040,7 +1040,7 @@ export default function AdminDashboard() {
                                     required
                                     value={loginForm.email}
                                     onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
-                                    placeholder="admin@panti.com"
+                                    placeholder="Masukkan email administrator"
                                     className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm text-slate-900 focus:outline-none focus:border-primary"
                                 />
                             </div>
@@ -1066,24 +1066,6 @@ export default function AdminDashboard() {
                                 <KeyIcon className="w-4 h-4" />
                                 <span>Masuk ke Dashboard Admin</span>
                             </button>
-
-                            <div className="pt-3 border-t border-slate-100">
-                                <button
-                                    type="button"
-                                    onClick={() => setLoginForm({ email: 'admin@panti.com', password: 'password' })}
-                                    className="w-full p-2.5 rounded-lg border border-slate-200 hover:border-primary hover:bg-primary-light/50 text-left transition-all flex items-center justify-between"
-                                >
-                                    <div>
-                                        <span className="text-xs font-bold text-slate-800 block">
-                                            Administrator As-Sholihin
-                                        </span>
-                                        <span className="text-[11px] font-mono text-slate-500">
-                                            admin@panti.com | password
-                                        </span>
-                                    </div>
-                                    <span className="text-[11px] font-semibold text-primary">Isi Otomatis →</span>
-                                </button>
-                            </div>
                         </form>
                     </div>
                 </main>
