@@ -85,34 +85,65 @@ export default function DonorPortal() {
             try {
                 const saved = JSON.parse(localStorage.getItem('assholihin_donor_history') || '[]');
                 const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
-                const res = await fetch(`${baseUrl}/orders`);
-                if (res.ok) {
-                    const serverOrders = await res.json();
-                    if (Array.isArray(serverOrders)) {
-                        serverOrders.forEach(so => {
-                            const formattedDate = new Intl.DateTimeFormat('id-ID', {
-                                day: '2-digit',
-                                month: 'short',
-                                year: 'numeric'
-                            }).format(new Date(so.created_at || Date.now()));
-                            const mapped = {
-                                id: so.order_id,
-                                date: formattedDate,
-                                program: so.program || 'Santunan & Pendidikan Anak Yatim',
-                                amount: Number(so.amount || 50000),
-                                method: (so.payment_channel || 'Midtrans Snap').replace(/_/g, ' '),
-                                status: ['paid', 'success'].includes(so.status) ? 'Berhasil (Settlement)' : 'Menunggu Pembayaran'
-                            };
-                            const idx = saved.findIndex(item => item.id === mapped.id);
-                            if (idx >= 0) {
-                                saved[idx] = { ...saved[idx], ...mapped };
-                            } else {
-                                saved.unshift(mapped);
-                            }
-                        });
-                        localStorage.setItem('assholihin_donor_history', JSON.stringify(saved));
+
+                // 1. Ambil daftar order dari server (jika ada)
+                try {
+                    const res = await fetch(`${baseUrl}/orders?t=${Date.now()}`);
+                    if (res.ok) {
+                        const serverOrders = await res.json();
+                        if (Array.isArray(serverOrders)) {
+                            serverOrders.forEach(so => {
+                                const formattedDate = new Intl.DateTimeFormat('id-ID', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric'
+                                }).format(new Date(so.created_at || Date.now()));
+                                const mapped = {
+                                    id: so.order_id,
+                                    date: formattedDate,
+                                    program: so.program || 'Santunan & Pendidikan Anak Yatim',
+                                    amount: Number(so.amount || 50000),
+                                    method: (so.payment_channel || 'Midtrans Snap').replace(/_/g, ' '),
+                                    status: ['paid', 'success'].includes(so.status) ? 'Berhasil (Settlement)' : 'Menunggu Pembayaran'
+                                };
+                                const idx = saved.findIndex(item => item.id === mapped.id);
+                                if (idx >= 0) {
+                                    saved[idx] = { ...saved[idx], ...mapped };
+                                } else {
+                                    saved.unshift(mapped);
+                                }
+                            });
+                        }
                     }
-                }
+                } catch {}
+
+                // 2. Auto-check langsung ke API Midtrans untuk setiap transaksi yang masih pending
+                await Promise.all(
+                    saved.map(async (item, index) => {
+                        if (!item.id || item.id.startsWith('ORD-')) return;
+                        try {
+                            const statusRes = await fetch(`${baseUrl}/landing/payment/status/${encodeURIComponent(item.id)}?t=${Date.now()}`);
+                            if (statusRes.ok) {
+                                const statusJson = await statusRes.json();
+                                if (statusJson?.success && statusJson?.data) {
+                                    const d = statusJson.data;
+                                    saved[index] = {
+                                        ...item,
+                                        amount: Number(d.amount || item.amount),
+                                        method: (d.payment_channel || item.method || 'Midtrans Snap').replace(/_/g, ' '),
+                                        status: ['paid', 'success'].includes(d.status)
+                                            ? 'Berhasil (Settlement)'
+                                            : ['expired', 'failed', 'cancelled'].includes(d.status)
+                                            ? 'Dibatalkan / Kedaluwarsa'
+                                            : 'Menunggu Pembayaran'
+                                    };
+                                }
+                            }
+                        } catch {}
+                    })
+                );
+
+                localStorage.setItem('assholihin_donor_history', JSON.stringify(saved));
                 setHistoryList([...saved, ...SAMPLE_HISTORY]);
             } catch {
                 // fallback to localStorage
@@ -120,8 +151,12 @@ export default function DonorPortal() {
         };
 
         refreshHistory();
+        const interval = setInterval(refreshHistory, 5000);
         window.addEventListener('assholihin-history-change', refreshHistory);
-        return () => window.removeEventListener('assholihin-history-change', refreshHistory);
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('assholihin-history-change', refreshHistory);
+        };
     }, [activeTab]);
 
     const [banks, setBanks] = useState(() => {
@@ -1052,36 +1087,55 @@ export default function DonorPortal() {
                                                             <th className="py-3 px-4">Program Akad</th>
                                                             <th className="py-3 px-4">Nominal</th>
                                                             <th className="py-3 px-4">Metode</th>
+                                                            <th className="py-3 px-4">Status</th>
                                                             <th className="py-3 pl-4 text-right">E-Kwitansi</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
-                                                        {historyList.map((item) => (
-                                                            <tr key={item.id} className="hover:bg-slate-50/70">
-                                                                <td className="py-3.5 pr-4 font-mono font-semibold text-slate-800">
-                                                                    {item.id}
-                                                                </td>
-                                                                <td className="py-3.5 px-4 text-slate-600">{item.date}</td>
-                                                                <td className="py-3.5 px-4 font-medium text-slate-900">
-                                                                    {item.program}
-                                                                </td>
-                                                                <td className="py-3.5 px-4 font-bold text-primary tabular-nums">
-                                                                    {formatIDR(item.amount)}
-                                                                </td>
-                                                                <td className="py-3.5 px-4 text-slate-600">
-                                                                    {item.method}
-                                                                </td>
-                                                                <td className="py-3.5 pl-4 text-right">
-                                                                    <a
-                                                                        href={`/success?order_id=${item.id}`}
-                                                                        className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-                                                                    >
-                                                                        <ArrowDownTrayIcon className="w-4 h-4" />
-                                                                        <span>Lihat / Cetak PDF</span>
-                                                                    </a>
-                                                                </td>
-                                                            </tr>
-                                                        ))}
+                                                        {historyList.map((item) => {
+                                                            const isPaid = (item.status || '').toLowerCase().includes('berhasil') || (item.status || '').toLowerCase().includes('settlement');
+                                                            const isFailed = (item.status || '').toLowerCase().includes('batal') || (item.status || '').toLowerCase().includes('kedaluwarsa');
+                                                            return (
+                                                                <tr key={item.id} className="hover:bg-slate-50/70">
+                                                                    <td className="py-3.5 pr-4 font-mono font-semibold text-slate-800">
+                                                                        {item.id}
+                                                                    </td>
+                                                                    <td className="py-3.5 px-4 text-slate-600">{item.date}</td>
+                                                                    <td className="py-3.5 px-4 font-medium text-slate-900">
+                                                                        {item.program}
+                                                                    </td>
+                                                                    <td className="py-3.5 px-4 font-bold text-primary tabular-nums">
+                                                                        {formatIDR(item.amount)}
+                                                                    </td>
+                                                                    <td className="py-3.5 px-4 text-slate-600">
+                                                                        {item.method}
+                                                                    </td>
+                                                                    <td className="py-3.5 px-4">
+                                                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${
+                                                                            isPaid
+                                                                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                                                : isFailed
+                                                                                ? 'bg-red-50 text-red-700 border border-red-200'
+                                                                                : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                                                        }`}>
+                                                                            <span className={`w-1.5 h-1.5 rounded-full ${
+                                                                                isPaid ? 'bg-emerald-500' : isFailed ? 'bg-red-500' : 'bg-amber-500 animate-pulse'
+                                                                            }`} />
+                                                                            {item.status || 'Menunggu Pembayaran'}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="py-3.5 pl-4 text-right">
+                                                                        <a
+                                                                            href={`/success?order_id=${item.id}`}
+                                                                            className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                                                                        >
+                                                                            <ArrowDownTrayIcon className="w-4 h-4" />
+                                                                            <span>Lihat / Cetak PDF</span>
+                                                                        </a>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
                                                     </tbody>
                                                 </table>
                                             </div>
