@@ -86,7 +86,33 @@ export default function DonorPortal() {
                 const saved = JSON.parse(localStorage.getItem('assholihin_donor_history') || '[]');
                 const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
 
-                // 1. Ambil daftar order dari server (jika ada)
+                // 0. Scan seluruh donasi_meta_DONASI-* di localStorage agar tidak ada order yang terlewat
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith('donasi_meta_')) {
+                        try {
+                            const meta = JSON.parse(localStorage.getItem(key));
+                            if (meta && meta.order_id && !saved.some(s => s.id === meta.order_id)) {
+                                const formattedDate = new Intl.DateTimeFormat('id-ID', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric'
+                                }).format(new Date(meta.created_at || Date.now()));
+                                saved.unshift({
+                                    id: meta.order_id,
+                                    donorName: meta.customer_name || 'Hamba Allah',
+                                    date: formattedDate,
+                                    program: meta.program || 'Santunan & Pendidikan Anak Yatim',
+                                    amount: Number(meta.amount || 50000),
+                                    method: (meta.payment_channel || 'MIDTRANS SNAP').replace(/_/g, ' '),
+                                    status: ['paid', 'success'].includes(meta.status) ? 'Berhasil (Settlement)' : 'Menunggu Pembayaran'
+                                });
+                            }
+                        } catch {}
+                    }
+                }
+
+                // 1. Ambil daftar order dari server (/api/orders yang otomatis cek ke Midtrans)
                 try {
                     const res = await fetch(`${baseUrl}/orders?t=${Date.now()}`);
                     if (res.ok) {
@@ -100,11 +126,16 @@ export default function DonorPortal() {
                                 }).format(new Date(so.created_at || Date.now()));
                                 const mapped = {
                                     id: so.order_id,
+                                    donorName: so.customer_name || 'Hamba Allah',
                                     date: formattedDate,
                                     program: so.program || 'Santunan & Pendidikan Anak Yatim',
                                     amount: Number(so.amount || 50000),
-                                    method: (so.payment_channel || 'Midtrans Snap').replace(/_/g, ' '),
-                                    status: ['paid', 'success'].includes(so.status) ? 'Berhasil (Settlement)' : 'Menunggu Pembayaran'
+                                    method: (so.payment_channel || 'MIDTRANS SNAP').replace(/_/g, ' '),
+                                    status: ['paid', 'success'].includes(so.status)
+                                        ? 'Berhasil (Settlement)'
+                                        : ['expired', 'failed', 'cancelled'].includes(so.status)
+                                        ? 'Dibatalkan / Kedaluwarsa'
+                                        : 'Menunggu Pembayaran'
                                 };
                                 const idx = saved.findIndex(item => item.id === mapped.id);
                                 if (idx >= 0) {
@@ -117,10 +148,10 @@ export default function DonorPortal() {
                     }
                 } catch {}
 
-                // 2. Auto-check langsung ke API Midtrans untuk setiap transaksi yang masih pending
+                // 2. Auto-check langsung ke API Midtrans untuk setiap transaksi yang ada di daftar
                 await Promise.all(
                     saved.map(async (item, index) => {
-                        if (!item.id || item.id.startsWith('ORD-')) return;
+                        if (!item.id || item.id.startsWith('ORD-') || item.id.startsWith('MANUAL-')) return;
                         try {
                             const statusRes = await fetch(`${baseUrl}/landing/payment/status/${encodeURIComponent(item.id)}?t=${Date.now()}`);
                             if (statusRes.ok) {
@@ -129,8 +160,9 @@ export default function DonorPortal() {
                                     const d = statusJson.data;
                                     saved[index] = {
                                         ...item,
+                                        donorName: item.donorName || d.customer_name || 'Hamba Allah',
                                         amount: Number(d.amount || item.amount),
-                                        method: (d.payment_channel || item.method || 'Midtrans Snap').replace(/_/g, ' '),
+                                        method: (d.payment_channel || item.method || 'MIDTRANS SNAP').replace(/_/g, ' '),
                                         status: ['paid', 'success'].includes(d.status)
                                             ? 'Berhasil (Settlement)'
                                             : ['expired', 'failed', 'cancelled'].includes(d.status)
@@ -151,11 +183,13 @@ export default function DonorPortal() {
         };
 
         refreshHistory();
-        const interval = setInterval(refreshHistory, 5000);
+        const interval = setInterval(refreshHistory, 3000);
         window.addEventListener('assholihin-history-change', refreshHistory);
+        window.addEventListener('storage', refreshHistory);
         return () => {
             clearInterval(interval);
             window.removeEventListener('assholihin-history-change', refreshHistory);
+            window.removeEventListener('storage', refreshHistory);
         };
     }, [activeTab]);
 

@@ -1,7 +1,5 @@
 import { setCorsHeaders } from '../_lib/db.js';
-
-const DEFAULT_SERVER_KEY = ['Mid', 'server', 'kpk1coOv1VAbEYHxbi6ckMF1'].join('-');
-const SNAP_URL = 'https://app.sandbox.midtrans.com/snap/v1/transactions';
+import { ordersStore, notificationsStore, getMidtransAuthHeader, SNAP_URL } from '../_lib/ordersStore.js';
 
 export default async function handler(req, res) {
     setCorsHeaders(res);
@@ -19,12 +17,11 @@ export default async function handler(req, res) {
         const donorName = body.donor_name || body.nama || 'Hamba Allah';
         const donorEmail = body.donor_email || body.email || 'donatur@assholihin.or.id';
         const phone = body.no_wa || '';
-        const program = body.program || 'Donasi Panti Asuhan As-Sholihin';
+        const program = body.program || 'Santunan & Pendidikan Anak Yatim';
         const grossAmount = Math.max(10000, parseInt(body.amount || body.nominal || 50000, 10));
         const orderId = 'DONASI-' + Date.now();
 
-        const serverKey = process.env.MIDTRANS_SERVER_KEY || DEFAULT_SERVER_KEY;
-        const authHeader = 'Basic ' + Buffer.from(serverKey + ':').toString('base64');
+        const authHeader = getMidtransAuthHeader();
 
         const payload = {
             transaction_details: {
@@ -65,6 +62,34 @@ export default async function handler(req, res) {
                 details: data
             });
         }
+
+        const orderRecord = {
+            order_id: orderId,
+            customer_name: donorName,
+            customer_email: donorEmail,
+            customer_phone: phone,
+            program: program,
+            amount: grossAmount,
+            status: 'pending',
+            payment_url: data.redirect_url,
+            token: data.token,
+            payment_channel: 'MIDTRANS SNAP',
+            created_at: new Date().toISOString()
+        };
+
+        ordersStore.set(orderId, orderRecord);
+
+        notificationsStore.unshift({
+            id: `NOTIF-${Date.now()}`,
+            order_id: orderId,
+            title: `Donasi Baru Dibuat: ${donorName}`,
+            message: `${donorName} memulai donasi Rp ${grossAmount.toLocaleString('id-ID')} (${program})`,
+            status: 'pending',
+            amount: grossAmount,
+            donor_name: donorName,
+            time: new Date().toISOString(),
+            read: false
+        });
 
         return res.status(200).json({
             status: 'success',

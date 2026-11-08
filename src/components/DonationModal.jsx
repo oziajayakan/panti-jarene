@@ -107,10 +107,13 @@ export default function DonationModal({ isOpen, setIsOpen, initialData }) {
 
                         const newEntry = {
                             id: orderId,
+                            donorName: donorName,
+                            email: formData.email || 'donatur@assholihin.or.id',
+                            no_wa: formData.no_wa || '',
                             date: formattedDate,
                             program: formData.program,
                             amount: Number(formData.nominal),
-                            method: 'Midtrans Snap',
+                            method: 'MIDTRANS SNAP',
                             status: 'Menunggu Pembayaran'
                         };
                         const filtered = existingHistory.filter(item => item.id !== orderId);

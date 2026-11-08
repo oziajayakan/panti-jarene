@@ -6,13 +6,21 @@ const DEFAULT_MIDTRANS_SERVER_KEY = ['Mid', 'server', 'kpk1coOv1VAbEYHxbi6ckMF1'
 const SNAP_URL = 'https://app.sandbox.midtrans.com/snap/v1/transactions';
 const API_URL = 'https://api.sandbox.midtrans.com/v2';
 
-// Penyimpanan sementara transaksi di memori saat dev
+// Penyimpanan sementara transaksi & notifikasi di memori saat dev
 const devOrders = new Map();
+const devNotifications = [];
 
 function midtransDevPlugin(serverKey) {
     const authHeader = 'Basic ' + Buffer.from(serverKey + ':').toString('base64');
 
     const handleNotificationWebhook = (req, res, next) => {
+        if (req.method === 'GET') {
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Cache-Control', 'no-store');
+            res.statusCode = 200;
+            res.end(JSON.stringify(devNotifications.slice(0, 30)));
+            return;
+        }
         if (req.method !== 'POST') return next();
 
         let rawBody = '';
@@ -58,13 +66,26 @@ function midtransDevPlugin(serverKey) {
 
                 existing.status = status;
                 if (n.payment_type) {
-                    existing.payment_channel = n.payment_type.toUpperCase();
+                    existing.payment_channel = n.payment_type.replace(/_/g, ' ').toUpperCase();
                 }
                 if (grossAmount) {
                     existing.amount = parseFloat(grossAmount);
                 }
 
                 devOrders.set(orderId, existing);
+
+                devNotifications.unshift({
+                    id: `NOTIF-${Date.now()}`,
+                    order_id: orderId,
+                    title: status === 'paid' ? `Pembayaran Lunas: ${existing.customer_name}` : `Notifikasi Midtrans: ${orderId}`,
+                    message: `${existing.customer_name} — Rp ${Number(existing.amount).toLocaleString('id-ID')} via ${existing.payment_channel || 'Midtrans'} (${status === 'paid' ? 'Berhasil / Settlement' : status})`,
+                    status: status,
+                    amount: existing.amount,
+                    donor_name: existing.customer_name,
+                    time: new Date().toISOString(),
+                    read: false
+                });
+
                 console.log(`[Midtrans Webhook] Order ${orderId} -> ${status} (${existing.payment_channel || '-'})`);
 
                 res.statusCode = 200;
@@ -93,7 +114,7 @@ function midtransDevPlugin(serverKey) {
                         const donorName = body.donor_name || body.nama || 'Hamba Allah';
                         const donorEmail = body.donor_email || body.email || 'donatur@assholihin.or.id';
                         const phone = body.no_wa || '';
-                        const program = body.program || 'Donasi Panti Asuhan As-Sholihin';
+                        const program = body.program || 'Santunan & Pendidikan Anak Yatim';
                         const grossAmount = Math.max(10000, parseInt(body.amount || body.nominal || 50000, 10));
                         const orderId = 'DONASI-' + Date.now();
 
@@ -150,8 +171,20 @@ function midtransDevPlugin(serverKey) {
                             status: 'pending',
                             payment_url: data.redirect_url,
                             token: data.token,
-                            payment_channel: 'MIDTRANS_SNAP',
+                            payment_channel: 'MIDTRANS SNAP',
                             created_at: new Date().toISOString()
+                        });
+
+                        devNotifications.unshift({
+                            id: `NOTIF-${Date.now()}`,
+                            order_id: orderId,
+                            title: `Donasi Baru: ${donorName}`,
+                            message: `${donorName} membuat transaksi donasi Rp ${grossAmount.toLocaleString('id-ID')} (${program})`,
+                            status: 'pending',
+                            amount: grossAmount,
+                            donor_name: donorName,
+                            time: new Date().toISOString(),
+                            read: false
                         });
 
                         res.statusCode = 200;
@@ -180,11 +213,60 @@ function midtransDevPlugin(serverKey) {
             server.middlewares.use('/api/v1/notification', handleNotificationWebhook);
             server.middlewares.use('/api/midtrans/callback', handleNotificationWebhook);
 
-            // 3. Endpoint Daftar Semua Order (/api/orders) untuk sinkronisasi Riwayat Donatur
-            server.middlewares.use('/api/orders', (req, res, next) => {
+            // 3. Endpoint Daftar Semua Order (/api/orders) + Auto-Check ke Midtrans v2
+            server.middlewares.use('/api/orders', async (req, res, next) => {
                 if (req.method !== 'GET') return next();
                 res.setHeader('Content-Type', 'application/json');
-                res.setHeader('Cache-Control', 'no-store');
+                res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+
+                const allOrders = [...devOrders.values()];
+                await Promise.all(
+                    allOrders.map(async (ord) => {
+                        if (ord.status === 'paid' || !ord.order_id || ord.order_id.startsWith('ORD-')) return;
+                        try {
+                            const r = await fetch(`${API_URL}/${encodeURIComponent(ord.order_id)}/status`, {
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'Authorization': authHeader
+                                }
+                            });
+                            const midtransStatus = await r.json();
+                            if (midtransStatus && midtransStatus.transaction_status) {
+                                const prev = ord.status;
+                                const txStatus = midtransStatus.transaction_status;
+                                if (txStatus === 'settlement' || txStatus === 'capture') {
+                                    ord.status = 'paid';
+                                } else if (txStatus === 'pending') {
+                                    ord.status = 'pending';
+                                } else if (['deny', 'cancel', 'expire', 'failure'].includes(txStatus)) {
+                                    ord.status = txStatus === 'expire' ? 'expired' : 'failed';
+                                }
+                                if (midtransStatus.payment_type) {
+                                    ord.payment_channel = midtransStatus.payment_type.replace(/_/g, ' ').toUpperCase();
+                                }
+                                if (midtransStatus.gross_amount) {
+                                    ord.amount = parseFloat(midtransStatus.gross_amount);
+                                }
+                                devOrders.set(ord.order_id, ord);
+
+                                if (prev !== 'paid' && ord.status === 'paid') {
+                                    devNotifications.unshift({
+                                        id: `NOTIF-${Date.now()}`,
+                                        order_id: ord.order_id,
+                                        title: `Pembayaran Lunas: ${ord.customer_name}`,
+                                        message: `${ord.customer_name} melunasi donasi Rp ${Number(ord.amount).toLocaleString('id-ID')} via ${ord.payment_channel}`,
+                                        status: 'paid',
+                                        amount: ord.amount,
+                                        donor_name: ord.customer_name,
+                                        time: new Date().toISOString(),
+                                        read: false
+                                    });
+                                }
+                            }
+                        } catch {}
+                    })
+                );
+
                 res.statusCode = 200;
                 res.end(JSON.stringify([...devOrders.values()].reverse()));
             });
@@ -209,11 +291,14 @@ function midtransDevPlugin(serverKey) {
                     order_id: orderId,
                     customer_name: 'Donatur As-Sholihin',
                     customer_email: 'donatur@assholihin.or.id',
+                    program: 'Santunan & Pendidikan Anak Yatim',
                     amount: 50000,
                     status: 'pending',
-                    payment_channel: 'MIDTRANS_SNAP',
+                    payment_channel: 'MIDTRANS SNAP',
                     created_at: new Date().toISOString()
                 };
+
+                const prevStatus = localOrder.status;
 
                 try {
                     const r = await fetch(`${API_URL}/${encodeURIComponent(orderId)}/status`, {
@@ -238,12 +323,26 @@ function midtransDevPlugin(serverKey) {
                             localOrder.amount = parseFloat(midtransStatus.gross_amount);
                         }
                         if (midtransStatus.payment_type) {
-                            localOrder.payment_channel = midtransStatus.payment_type.toUpperCase();
+                            localOrder.payment_channel = midtransStatus.payment_type.replace(/_/g, ' ').toUpperCase();
                         }
                         if (midtransStatus.transaction_time) {
                             localOrder.created_at = midtransStatus.transaction_time;
                         }
                         devOrders.set(orderId, localOrder);
+
+                        if (prevStatus !== 'paid' && localOrder.status === 'paid') {
+                            devNotifications.unshift({
+                                id: `NOTIF-${Date.now()}`,
+                                order_id: orderId,
+                                title: `Pembayaran Lunas: ${localOrder.customer_name}`,
+                                message: `${localOrder.customer_name} melunasi donasi Rp ${Number(localOrder.amount).toLocaleString('id-ID')} via ${localOrder.payment_channel}`,
+                                status: 'paid',
+                                amount: localOrder.amount,
+                                donor_name: localOrder.customer_name,
+                                time: new Date().toISOString(),
+                                read: false
+                            });
+                        }
                     }
                 } catch (e) {
                     // Jika belum dipilih metode di popup Midtrans (404), tetap kembalikan localOrder

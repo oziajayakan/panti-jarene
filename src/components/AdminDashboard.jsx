@@ -30,13 +30,13 @@ import {
     ArrowDownTrayIcon,
     MagnifyingGlassIcon,
     ShieldCheckIcon,
-    LockClosedIcon,
     KeyIcon,
     HomeIcon,
     Bars3Icon,
     XMarkIcon,
     CheckCircleIcon,
-    ClockIcon
+    BellAlertIcon,
+    ArrowUpTrayIcon
 } from '@heroicons/react/24/outline';
 
 ChartJS.register(
@@ -58,15 +58,7 @@ const DEFAULT_ADMIN_ACCOUNTS = [
         email: 'admin@panti.com',
         password: 'password',
         role: 'ADMIN',
-        jabatan: 'Ketua Pengurus Yayasan'
-    },
-    {
-        id: 2,
-        name: 'Bendahara Kas Yayasan',
-        email: 'petugas@panti.com',
-        password: 'password',
-        role: 'PETUGAS',
-        jabatan: 'Bendahara & Audit PSAK 109'
+        jabatan: 'Administrator Utama Yayasan'
     }
 ];
 
@@ -141,7 +133,7 @@ const DEFAULT_KAS_TRANSACTIONS = [
         kategori: 'Dana Infaq & Sedekah',
         uraian: 'Penerimaan Donasi QRIS & Virtual Account Mingguan',
         nominal: 12500000,
-        pj: 'Bendahara Yayasan'
+        pj: 'Administrator Yayasan'
     },
     {
         id: 'KAS-20261102-02',
@@ -150,7 +142,7 @@ const DEFAULT_KAS_TRANSACTIONS = [
         kategori: 'Pangan & Gizi Asrama',
         uraian: 'Belanja Beras 250 Kg, Telur, Sayur & Lauk Pauk Santri Mukim',
         nominal: 4850000,
-        pj: 'Ust. H. Syافii (Logistik)'
+        pj: 'Logistik Asrama'
     },
     {
         id: 'KAS-20261103-03',
@@ -168,7 +160,7 @@ const DEFAULT_KAS_TRANSACTIONS = [
         kategori: 'Dana Zakat Maal',
         uraian: 'Setoran Zakat Penghasilan Donatur Tetap Bulan November',
         nominal: 8500000,
-        pj: 'Bendahara Yayasan'
+        pj: 'Administrator Yayasan'
     },
     {
         id: 'KAS-20261105-05',
@@ -267,7 +259,7 @@ const SAMPLE_DONATIONS = [
 ];
 
 export default function AdminDashboard() {
-    // 1. Auth State Pengurus
+    // 1. Auth State Admin (Hanya 1 Akun Admin)
     const [adminUser, setAdminUser] = useState(() => {
         try {
             const raw = localStorage.getItem('assholihin_admin_session');
@@ -280,10 +272,13 @@ export default function AdminDashboard() {
     const [loginForm, setLoginForm] = useState({ email: '', password: '' });
     const [loginError, setLoginError] = useState('');
 
-    // 2. Navigation State
+    // 2. Navigation & Notification State
     const [activeMenu, setActiveMenu] = useState('overview'); // 'overview' | 'donations' | 'kas' | 'anak' | 'gallery' | 'laporan'
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
+    const [notifications, setNotifications] = useState([]);
+    const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+    const [lastSeenNotifId, setLastSeenNotifId] = useState(() => localStorage.getItem('assholihin_last_notif_id') || '');
 
     // 3. Data States (Persisted in localStorage & Synced with Public Landing Page)
     const [anakList, setAnakList] = useState(() => {
@@ -353,7 +348,7 @@ export default function AdminDashboard() {
         kategori: 'Pangan & Gizi Asrama',
         uraian: '',
         nominal: 500000,
-        pj: 'Bendahara Yayasan'
+        pj: 'Administrator Yayasan'
     });
 
     const [showManualDonationForm, setShowManualDonationForm] = useState(false);
@@ -365,7 +360,9 @@ export default function AdminDashboard() {
         status: 'Berhasil (Settlement)'
     });
 
+    // Gallery CRUD State (Create, Edit, Upload File)
     const [showGalleryForm, setShowGalleryForm] = useState(false);
+    const [editingGalleryId, setEditingGalleryId] = useState(null);
     const [galleryForm, setGalleryForm] = useState({
         title: '',
         category: 'Pendidikan & Tahfidz',
@@ -376,7 +373,7 @@ export default function AdminDashboard() {
 
     const showToast = (msg) => {
         setToastMessage(msg);
-        setTimeout(() => setToastMessage(''), 3500);
+        setTimeout(() => setToastMessage(''), 4000);
     };
 
     // Persist changes & broadcast to LandingPage
@@ -395,13 +392,43 @@ export default function AdminDashboard() {
         window.dispatchEvent(new Event('assholihin-data-updated'));
     }, [galleryList]);
 
-    // Auto-Polling Midtrans Transactions
+    // Auto-Polling Midtrans Transactions & Live Notifications
     const syncMidtransOrders = async (silent = true) => {
         if (!silent) setIsSyncingMidtrans(true);
         try {
             const saved = JSON.parse(localStorage.getItem('assholihin_donor_history') || '[]');
             const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
 
+            // 0. Scan seluruh donasi_meta_DONASI-* di localStorage
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('donasi_meta_')) {
+                    try {
+                        const meta = JSON.parse(localStorage.getItem(key));
+                        if (meta && meta.order_id && !saved.some((s) => s.id === meta.order_id)) {
+                            const formattedDate = new Intl.DateTimeFormat('id-ID', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric'
+                            }).format(new Date(meta.created_at || Date.now()));
+                            saved.unshift({
+                                id: meta.order_id,
+                                donorName: meta.customer_name || 'Hamba Allah',
+                                email: meta.customer_email || '-',
+                                date: formattedDate,
+                                program: meta.program || 'Santunan & Pendidikan Anak Yatim',
+                                amount: Number(meta.amount || 50000),
+                                method: (meta.payment_channel || 'MIDTRANS SNAP').replace(/_/g, ' '),
+                                status: ['paid', 'success'].includes(meta.status)
+                                    ? 'Berhasil (Settlement)'
+                                    : 'Menunggu Pembayaran'
+                            });
+                        }
+                    } catch {}
+                }
+            }
+
+            // 1. Ambil daftar order dari server (/api/orders yang otomatis cek ke Midtrans)
             try {
                 const res = await fetch(`${baseUrl}/orders?t=${Date.now()}`);
                 if (res.ok) {
@@ -415,14 +442,16 @@ export default function AdminDashboard() {
                             }).format(new Date(so.created_at || Date.now()));
                             const mapped = {
                                 id: so.order_id,
-                                donorName: so.customer_name || 'Donatur Online',
+                                donorName: so.customer_name || 'Hamba Allah',
                                 email: so.customer_email || '-',
                                 date: formattedDate,
                                 program: so.program || 'Santunan & Pendidikan Anak Yatim',
                                 amount: Number(so.amount || 50000),
-                                method: (so.payment_channel || 'Midtrans Snap').replace(/_/g, ' '),
+                                method: (so.payment_channel || 'MIDTRANS SNAP').replace(/_/g, ' '),
                                 status: ['paid', 'success'].includes(so.status)
                                     ? 'Berhasil (Settlement)'
+                                    : ['expired', 'failed', 'cancelled'].includes(so.status)
+                                    ? 'Dibatalkan / Kedaluwarsa'
                                     : 'Menunggu Pembayaran'
                             };
                             const idx = saved.findIndex((item) => item.id === mapped.id);
@@ -436,6 +465,27 @@ export default function AdminDashboard() {
                 }
             } catch {}
 
+            // 2. Ambil daftar notifikasi live dari server (/api/notification)
+            try {
+                const notifRes = await fetch(`${baseUrl}/notification?t=${Date.now()}`);
+                if (notifRes.ok) {
+                    const notifData = await notifRes.json();
+                    if (Array.isArray(notifData)) {
+                        setNotifications(notifData);
+                        if (notifData.length > 0) {
+                            const newest = notifData[0];
+                            const storedLast = localStorage.getItem('assholihin_last_notif_id');
+                            if (newest.id && newest.id !== storedLast) {
+                                localStorage.setItem('assholihin_last_notif_id', newest.id);
+                                setLastSeenNotifId(newest.id);
+                                showToast(`🔔 ${newest.title}: ${newest.message}`);
+                            }
+                        }
+                    }
+                }
+            } catch {}
+
+            // 3. Cek status individual ke Midtrans untuk setiap transaksi yang ada
             await Promise.all(
                 saved.map(async (item, index) => {
                     if (!item.id || item.id.startsWith('ORD-') || item.id.startsWith('MANUAL-')) return;
@@ -449,16 +499,24 @@ export default function AdminDashboard() {
                             const statusJson = await statusRes.json();
                             if (statusJson?.success && statusJson?.data) {
                                 const d = statusJson.data;
+                                const newStatus = ['paid', 'success'].includes(d.status)
+                                    ? 'Berhasil (Settlement)'
+                                    : ['expired', 'failed', 'cancelled'].includes(d.status)
+                                    ? 'Dibatalkan / Kedaluwarsa'
+                                    : 'Menunggu Pembayaran';
+
+                                if (item.status !== 'Berhasil (Settlement)' && newStatus === 'Berhasil (Settlement)') {
+                                    showToast(
+                                        `✅ Donasi ${item.donorName || d.customer_name || 'Donatur'} (${item.id}) telah LUNAS!`
+                                    );
+                                }
+
                                 saved[index] = {
                                     ...item,
                                     donorName: item.donorName || meta?.customer_name || d.customer_name || 'Hamba Allah',
                                     amount: Number(d.amount || item.amount),
-                                    method: (d.payment_channel || item.method || 'Midtrans Snap').replace(/_/g, ' '),
-                                    status: ['paid', 'success'].includes(d.status)
-                                        ? 'Berhasil (Settlement)'
-                                        : ['expired', 'failed', 'cancelled'].includes(d.status)
-                                        ? 'Dibatalkan / Kedaluwarsa'
-                                        : 'Menunggu Pembayaran'
+                                    method: (d.payment_channel || item.method || 'MIDTRANS SNAP').replace(/_/g, ' '),
+                                    status: newStatus
                                 };
                             }
                         }
@@ -468,7 +526,7 @@ export default function AdminDashboard() {
 
             localStorage.setItem('assholihin_donor_history', JSON.stringify(saved));
             setDonationList([...saved, ...SAMPLE_DONATIONS]);
-            if (!silent) showToast('Status transaksi Midtrans berhasil disinkronkan!');
+            if (!silent) showToast('Data donatur & status Midtrans berhasil disinkronkan!');
         } catch {
             // fallback
         } finally {
@@ -479,7 +537,8 @@ export default function AdminDashboard() {
     useEffect(() => {
         if (!adminUser) return;
         syncMidtransOrders(true);
-        const interval = setInterval(() => syncMidtransOrders(true), 5000);
+        const interval = setInterval(() => syncMidtransOrders(true), 3000);
+        window.addEventListener('storage', () => syncMidtransOrders(true));
         return () => clearInterval(interval);
     }, [adminUser]);
 
@@ -494,7 +553,11 @@ export default function AdminDashboard() {
 
     // Computed Financial Metrics
     const totalSettledDonations = donationList
-        .filter((d) => (d.status || '').toLowerCase().includes('berhasil') || (d.status || '').toLowerCase().includes('settlement'))
+        .filter(
+            (d) =>
+                (d.status || '').toLowerCase().includes('berhasil') ||
+                (d.status || '').toLowerCase().includes('settlement')
+        )
         .reduce((acc, cur) => acc + Number(cur.amount || 0), 0);
 
     const totalKasMasuk = kasList
@@ -509,7 +572,7 @@ export default function AdminDashboard() {
     const basePengeluaran = 183000000 + totalKasKeluar;
     const saldoAkhir = 84620000 + totalSettledDonations + totalKasMasuk - totalKasKeluar;
 
-    // Handlers Auth
+    // Handlers Auth (Hanya Admin)
     const handleAdminLogin = (e) => {
         e.preventDefault();
         setLoginError('');
@@ -519,7 +582,7 @@ export default function AdminDashboard() {
                 acc.password === loginForm.password
         );
         if (!found) {
-            setLoginError('Email atau kata sandi pengurus tidak sesuai.');
+            setLoginError('Email atau kata sandi Administrator salah.');
             return;
         }
         localStorage.setItem('assholihin_admin_session', JSON.stringify(found));
@@ -536,7 +599,9 @@ export default function AdminDashboard() {
         e.preventDefault();
         if (editingAnakId) {
             setAnakList((prev) =>
-                prev.map((a) => (a.id === editingAnakId ? { ...anakForm, id: editingAnakId, usia: Number(anakForm.usia) } : a))
+                prev.map((a) =>
+                    a.id === editingAnakId ? { ...anakForm, id: editingAnakId, usia: Number(anakForm.usia) } : a
+                )
             );
             showToast('Data anak asuh berhasil diperbarui.');
         } else {
@@ -590,7 +655,7 @@ export default function AdminDashboard() {
             kategori: kasForm.kategori,
             uraian: kasForm.uraian,
             nominal: Number(kasForm.nominal),
-            pj: kasForm.pj || adminUser?.name || 'Bendahara Yayasan'
+            pj: kasForm.pj || adminUser?.name || 'Administrator Yayasan'
         };
         setKasList((prev) => [newKas, ...prev]);
         setShowKasForm(false);
@@ -599,7 +664,7 @@ export default function AdminDashboard() {
             kategori: 'Pangan & Gizi Asrama',
             uraian: '',
             nominal: 500000,
-            pj: 'Bendahara Yayasan'
+            pj: 'Administrator Yayasan'
         });
         showToast('Transaksi buku kas berhasil dicatat & disinkronkan ke halaman depan.');
     };
@@ -669,21 +734,60 @@ export default function AdminDashboard() {
         showToast(`Order ${orderId} diverifikasi menjadi Berhasil (Settlement).`);
     };
 
-    // Handlers Gallery
+    // Handlers Gallery CRUD (Upload Gambar File + Edit Postingan + Hapus)
+    const handleImageFileUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (file.size > 4 * 1024 * 1024) {
+            showToast('Ukuran gambar maksimal 4 MB.');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result === 'string') {
+                setGalleryForm((prev) => ({ ...prev, image_url: reader.result }));
+            }
+        };
+        reader.readAsDataURL(file);
+    };
+
     const handleSaveGallery = (e) => {
         e.preventDefault();
-        const newItem = {
-            id: Date.now(),
-            title: galleryForm.title,
-            category: galleryForm.category,
-            date: galleryForm.date || 'November 2026',
-            description: galleryForm.description,
-            image_url:
-                galleryForm.image_url ||
-                'https://images.unsplash.com/photo-1584286595398-a59f21d313f5?auto=format&fit=crop&w=900&q=80'
-        };
-        setGalleryList((prev) => [newItem, ...prev]);
+        const finalImage =
+            galleryForm.image_url ||
+            'https://images.unsplash.com/photo-1584286595398-a59f21d313f5?auto=format&fit=crop&w=900&q=80';
+
+        if (editingGalleryId) {
+            setGalleryList((prev) =>
+                prev.map((item) =>
+                    item.id === editingGalleryId
+                        ? {
+                              ...item,
+                              title: galleryForm.title,
+                              category: galleryForm.category,
+                              date: galleryForm.date || item.date,
+                              description: galleryForm.description,
+                              image_url: finalImage
+                          }
+                        : item
+                )
+            );
+            showToast('Postingan kegiatan galeri berhasil diperbarui!');
+        } else {
+            const newItem = {
+                id: Date.now(),
+                title: galleryForm.title,
+                category: galleryForm.category,
+                date: galleryForm.date || 'November 2026',
+                description: galleryForm.description,
+                image_url: finalImage
+            };
+            setGalleryList((prev) => [newItem, ...prev]);
+            showToast('Dokumentasi kegiatan baru berhasil dipublikasikan ke Galeri Depan!');
+        }
+
         setShowGalleryForm(false);
+        setEditingGalleryId(null);
         setGalleryForm({
             title: '',
             category: 'Pendidikan & Tahfidz',
@@ -691,12 +795,23 @@ export default function AdminDashboard() {
             description: '',
             image_url: ''
         });
-        showToast('Dokumentasi kegiatan baru berhasil dipublikasikan ke Galeri Depan!');
+    };
+
+    const handleEditGallery = (item) => {
+        setEditingGalleryId(item.id);
+        setGalleryForm({
+            title: item.title,
+            category: item.category,
+            date: item.date,
+            description: item.description,
+            image_url: item.image_url
+        });
+        setShowGalleryForm(true);
     };
 
     const handleDeleteGallery = (id) => {
         setGalleryList((prev) => prev.filter((g) => g.id !== id));
-        showToast('Foto dokumentasi telah dihapus.');
+        showToast('Postingan galeri telah dihapus.');
     };
 
     // Export CSV
@@ -724,12 +839,11 @@ export default function AdminDashboard() {
     };
 
     // ============================================================================
-    // VIEW 1: LOGIN PENGURUS / ADMIN
+    // VIEW 1: LOGIN ADMIN (HANYA 1 AKUN ADMIN TANPA BENDAHARA)
     // ============================================================================
     if (!adminUser) {
         return (
             <div className="min-h-screen bg-surface flex flex-col justify-between">
-                {/* Top Header */}
                 <header className="bg-primary text-white py-3 border-b border-emerald-800">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2 font-medium">
@@ -743,7 +857,6 @@ export default function AdminDashboard() {
                     </div>
                 </header>
 
-                {/* Login Card */}
                 <main className="flex-1 flex items-center justify-center p-4">
                     <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-elevated overflow-hidden">
                         <div className="p-6 sm:p-8 bg-primary text-white">
@@ -755,7 +868,7 @@ export default function AdminDashboard() {
                                 />
                                 <div>
                                     <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-200 block">
-                                        Portal Eksekutif Pengurus
+                                        Portal Administrator Resmi
                                     </span>
                                     <h1 className="text-lg sm:text-xl font-heading font-bold">
                                         Dashboard Admin Panti
@@ -763,7 +876,7 @@ export default function AdminDashboard() {
                                 </div>
                             </div>
                             <p className="text-xs text-emerald-100 leading-relaxed">
-                                Masuk untuk mengelola transaksi Midtrans, buku kas PSAK 109, data anak asuh, dan publikasi galeri kegiatan.
+                                Masuk sebagai Administrator untuk mengelola transaksi Midtrans, buku kas PSAK 109, data anak asuh, dan publikasi galeri kegiatan.
                             </p>
                         </div>
 
@@ -776,7 +889,7 @@ export default function AdminDashboard() {
 
                             <div>
                                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                    Email Pengurus / Admin
+                                    Email Administrator
                                 </label>
                                 <input
                                     type="email"
@@ -810,29 +923,26 @@ export default function AdminDashboard() {
                                 <span>Masuk ke Dashboard Admin</span>
                             </button>
 
-                            {/* Quick Fill Demo Credentials */}
+                            {/* Quick Fill Single Admin Demo Credential */}
                             <div className="pt-4 border-t border-slate-100">
                                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                                    Akun Pengurus Siap Pakai (Klik untuk Isi Otomatis):
+                                    Akun Administrator (Klik untuk Isi Otomatis):
                                 </p>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setLoginForm({ email: 'admin@panti.com', password: 'password' })}
-                                        className="p-2.5 rounded-lg border border-slate-200 hover:border-primary hover:bg-primary-light/50 text-left transition-all"
-                                    >
-                                        <span className="text-xs font-bold text-slate-800 block">Ketua / Admin</span>
-                                        <span className="text-[11px] font-mono text-slate-500">admin@panti.com</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setLoginForm({ email: 'petugas@panti.com', password: 'password' })}
-                                        className="p-2.5 rounded-lg border border-slate-200 hover:border-primary hover:bg-primary-light/50 text-left transition-all"
-                                    >
-                                        <span className="text-xs font-bold text-slate-800 block">Bendahara Kas</span>
-                                        <span className="text-[11px] font-mono text-slate-500">petugas@panti.com</span>
-                                    </button>
-                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setLoginForm({ email: 'admin@panti.com', password: 'password' })}
+                                    className="w-full p-3 rounded-lg border border-slate-200 hover:border-primary hover:bg-primary-light/50 text-left transition-all flex items-center justify-between"
+                                >
+                                    <div>
+                                        <span className="text-xs font-bold text-slate-800 block">
+                                            Administrator As-Sholihin
+                                        </span>
+                                        <span className="text-[11px] font-mono text-slate-500">
+                                            Email: admin@panti.com | Sandi: password
+                                        </span>
+                                    </div>
+                                    <span className="text-[11px] font-semibold text-primary">Isi Otomatis →</span>
+                                </button>
                             </div>
                         </form>
                     </div>
@@ -853,7 +963,7 @@ export default function AdminDashboard() {
         { id: 'donations', label: 'Donasi & Midtrans', icon: BanknotesIcon, badge: donationList.length },
         { id: 'kas', label: 'Buku Kas PSAK 109', icon: ArrowsRightLeftIcon },
         { id: 'anak', label: 'Data Anak Asuh', icon: UserGroupIcon, badge: anakList.length },
-        { id: 'gallery', label: 'Galeri Kegiatan', icon: PhotoIcon },
+        { id: 'gallery', label: 'Galeri Kegiatan', icon: PhotoIcon, badge: galleryList.length },
         { id: 'laporan', label: 'Laporan LPJ & Export', icon: DocumentChartBarIcon }
     ];
 
@@ -862,7 +972,20 @@ export default function AdminDashboard() {
         datasets: [
             {
                 label: 'Pemasukan Donasi & Kas',
-                data: [14500000, 16200000, 18900000, 22400000, 15800000, 19300000, 21000000, 17500000, 20400000, 24100000, 28450000 + totalSettledDonations + totalKasMasuk, 0],
+                data: [
+                    14500000,
+                    16200000,
+                    18900000,
+                    22400000,
+                    15800000,
+                    19300000,
+                    21000000,
+                    17500000,
+                    20400000,
+                    24100000,
+                    28450000 + totalSettledDonations + totalKasMasuk,
+                    0
+                ],
                 borderColor: '#0D6B41',
                 backgroundColor: 'rgba(13, 107, 65, 0.1)',
                 borderWidth: 2,
@@ -871,7 +994,20 @@ export default function AdminDashboard() {
             },
             {
                 label: 'Realisasi Belanja Operasional',
-                data: [12100000, 14800000, 15200000, 19600000, 14300000, 16900000, 18200000, 15900000, 17800000, 18900000, 19300000 + totalKasKeluar, 0],
+                data: [
+                    12100000,
+                    14800000,
+                    15200000,
+                    19600000,
+                    14300000,
+                    16900000,
+                    18200000,
+                    15900000,
+                    17800000,
+                    18900000,
+                    19300000 + totalKasKeluar,
+                    0
+                ],
                 borderColor: '#64748b',
                 backgroundColor: 'rgba(100, 116, 139, 0.05)',
                 borderWidth: 2,
@@ -889,7 +1025,9 @@ export default function AdminDashboard() {
             (d.program || '').toLowerCase().includes(searchQuery.toLowerCase());
 
         if (statusFilter === 'ALL') return matchSearch;
-        const isPaid = (d.status || '').toLowerCase().includes('berhasil') || (d.status || '').toLowerCase().includes('settlement');
+        const isPaid =
+            (d.status || '').toLowerCase().includes('berhasil') ||
+            (d.status || '').toLowerCase().includes('settlement');
         if (statusFilter === 'PAID') return matchSearch && isPaid;
         if (statusFilter === 'PENDING') return matchSearch && !isPaid;
         return matchSearch;
@@ -899,7 +1037,7 @@ export default function AdminDashboard() {
         <div className="min-h-screen bg-surface flex flex-col lg:flex-row">
             {/* Toast Notification */}
             {toastMessage && (
-                <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-elevated border border-slate-700 flex items-center gap-2.5 text-xs sm:text-sm font-medium">
+                <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-elevated border border-slate-700 flex items-center gap-2.5 text-xs sm:text-sm font-medium max-w-md">
                     <CheckCircleIcon className="w-5 h-5 text-emerald-400 shrink-0" />
                     <span>{toastMessage}</span>
                 </div>
@@ -912,7 +1050,6 @@ export default function AdminDashboard() {
                 }`}
             >
                 <div>
-                    {/* Brand Header */}
                     <div className="p-5 border-b border-emerald-800/60 flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <img
@@ -925,7 +1062,7 @@ export default function AdminDashboard() {
                                     AS-SHOLIHIN
                                 </span>
                                 <span className="text-[11px] text-emerald-300 font-medium block">
-                                    Dashboard Pengurus
+                                    Dashboard Admin
                                 </span>
                             </div>
                         </div>
@@ -938,7 +1075,6 @@ export default function AdminDashboard() {
                         </button>
                     </div>
 
-                    {/* Navigation Menu */}
                     <div className="p-3 space-y-1">
                         <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-emerald-300/70">
                             Menu Manajemen Utama
@@ -979,7 +1115,6 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                {/* Bottom Actions */}
                 <div className="p-4 border-t border-emerald-800/60 space-y-2 bg-emerald-950/40">
                     <Link
                         to="/"
@@ -1001,7 +1136,7 @@ export default function AdminDashboard() {
 
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col min-w-0">
-                {/* Topbar */}
+                {/* Topbar with Live Notification Bell */}
                 <header className="bg-white border-b border-slate-200/80 sticky top-0 z-30">
                     <div className="px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
@@ -1017,12 +1152,80 @@ export default function AdminDashboard() {
                                     {menuItems.find((m) => m.id === activeMenu)?.label}
                                 </h1>
                                 <p className="text-[11px] text-slate-500 hidden sm:block">
-                                    Yayasan Assholihin Candimulyo Jombang • Terintegrasi Midtrans Sandbox & PSAK 109
+                                    Yayasan Assholihin Candimulyo Jombang • Auto-Sync Midtrans Aktif
                                 </p>
                             </div>
                         </div>
 
                         <div className="flex items-center gap-3">
+                            {/* Live Notification Bell */}
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+                                    className="relative p-2 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-colors"
+                                    title="Notifikasi Donatur Masuk"
+                                >
+                                    <BellAlertIcon className="w-5 h-5 text-primary" />
+                                    {notifications.length > 0 && (
+                                        <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-bold">
+                                            {notifications.length}
+                                        </span>
+                                    )}
+                                </button>
+
+                                {showNotifDropdown && (
+                                    <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-elevated z-50 overflow-hidden">
+                                        <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                                            <span className="text-xs font-bold text-slate-900">
+                                                Notifikasi Donatur & Midtrans ({notifications.length})
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowNotifDropdown(false)}
+                                                className="text-[11px] text-slate-500 hover:text-slate-800"
+                                            >
+                                                Tutup
+                                            </button>
+                                        </div>
+                                        <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                                            {notifications.length === 0 ? (
+                                                <div className="p-6 text-center text-xs text-slate-400">
+                                                    Belum ada notifikasi transaksi baru.
+                                                </div>
+                                            ) : (
+                                                notifications.map((n) => (
+                                                    <div
+                                                        key={n.id}
+                                                        onClick={() => {
+                                                            setActiveMenu('donations');
+                                                            setShowNotifDropdown(false);
+                                                        }}
+                                                        className="p-3.5 hover:bg-slate-50 cursor-pointer transition-colors"
+                                                    >
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="text-xs font-bold text-slate-900">
+                                                                {n.title}
+                                                            </span>
+                                                            <span
+                                                                className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                                                    n.status === 'paid'
+                                                                        ? 'bg-emerald-50 text-emerald-700'
+                                                                        : 'bg-amber-50 text-amber-700'
+                                                                }`}
+                                                            >
+                                                                {n.status === 'paid' ? 'LUNAS' : 'BARU'}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-[11px] text-slate-600 mt-1">{n.message}</p>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
                             <button
                                 type="button"
                                 onClick={() => syncMidtransOrders(false)}
@@ -1030,14 +1233,14 @@ export default function AdminDashboard() {
                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors"
                             >
                                 <ArrowPathIcon className={`w-4 h-4 text-primary ${isSyncingMidtrans ? 'animate-spin' : ''}`} />
-                                <span className="hidden sm:inline">Sinkronkan Midtrans</span>
+                                <span className="hidden sm:inline">Sinkronkan</span>
                             </button>
 
                             <div className="h-6 w-px bg-slate-200 hidden sm:block" />
 
                             <div className="flex items-center gap-2.5">
                                 <div className="w-8 h-8 rounded-full bg-primary-light text-primary font-bold text-xs flex items-center justify-center border border-emerald-200">
-                                    {adminUser.name.charAt(0)}
+                                    A
                                 </div>
                                 <div className="hidden md:block text-left">
                                     <span className="text-xs font-bold text-slate-900 block leading-none">
@@ -1055,50 +1258,10 @@ export default function AdminDashboard() {
                 {/* Page Body */}
                 <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1">
                     {/* ==================================================================== */}
-                    {/* TAB 1: OVERVIEW DASHBOARD */}
+                    {/* TAB 1: OVERVIEW DASHBOARD (Tanpa Banner Hijau Selamat Datang) */}
                     {/* ==================================================================== */}
                     {activeMenu === 'overview' && (
                         <div className="space-y-6">
-                            {/* Banner Welcome */}
-                            <div className="bg-primary rounded-2xl p-6 text-white shadow-card flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                <div>
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-800/80 text-emerald-200 text-[11px] font-semibold mb-2">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                        Auto-Polling Midtrans Sandbox Aktif
-                                    </span>
-                                    <h2 className="text-xl sm:text-2xl font-heading font-bold">
-                                        Assalamu’alaikum, {adminUser.name}
-                                    </h2>
-                                    <p className="text-xs sm:text-sm text-emerald-100 mt-1 max-w-2xl">
-                                        Seluruh perubahan data donasi, pencatatan pengeluaran kas, dan profil anak asuh di dashboard ini langsung tersinkronisasi secara real-time dengan halaman publik.
-                                    </p>
-                                </div>
-                                <div className="flex flex-wrap gap-2 shrink-0">
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setActiveMenu('kas');
-                                            setShowKasForm(true);
-                                        }}
-                                        className="px-4 py-2.5 rounded-xl bg-white text-primary font-bold text-xs hover:bg-emerald-50 transition-colors flex items-center gap-1.5"
-                                    >
-                                        <PlusIcon className="w-4 h-4" />
-                                        <span>Catat Kas Baru</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setActiveMenu('anak');
-                                            setShowAnakForm(true);
-                                        }}
-                                        className="px-4 py-2.5 rounded-xl bg-emerald-800/80 hover:bg-emerald-800 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 border border-emerald-700"
-                                    >
-                                        <PlusIcon className="w-4 h-4" />
-                                        <span>Tambah Anak Asuh</span>
-                                    </button>
-                                </div>
-                            </div>
-
                             {/* 4 KPI Summary Cards */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-card">
@@ -1194,11 +1357,12 @@ export default function AdminDashboard() {
                                     <div>
                                         <div className="flex items-center justify-between mb-4">
                                             <div>
-                                                <h3 className="text-base font-bold text-slate-900">
-                                                    Transaksi Donasi Terbaru
+                                                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                                                    <span>Donasi & Notifikasi Masuk</span>
                                                 </h3>
                                                 <p className="text-xs text-slate-500">
-                                                    Live feed dari Midtrans & Input Kas
+                                                    Otomatis terbaca saat donatur bertransaksi
                                                 </p>
                                             </div>
                                             <button
@@ -1211,7 +1375,7 @@ export default function AdminDashboard() {
                                         </div>
 
                                         <div className="divide-y divide-slate-100">
-                                            {donationList.slice(0, 5).map((item) => {
+                                            {donationList.slice(0, 6).map((item) => {
                                                 const isPaid =
                                                     (item.status || '').toLowerCase().includes('berhasil') ||
                                                     (item.status || '').toLowerCase().includes('settlement');
@@ -1249,8 +1413,8 @@ export default function AdminDashboard() {
                                     </div>
 
                                     <div className="pt-4 border-t border-slate-100 mt-4 flex items-center justify-between text-xs text-slate-500">
-                                        <span>Status Webhook Midtrans:</span>
-                                        <span className="font-mono font-semibold text-emerald-700">/api/notification (Aktif)</span>
+                                        <span>Endpoint Notifikasi Midtrans:</span>
+                                        <span className="font-mono font-semibold text-emerald-700">/api/notification</span>
                                     </div>
                                 </div>
                             </div>
@@ -1269,7 +1433,7 @@ export default function AdminDashboard() {
                                             Daftar Transaksi Donasi & Verifikasi Midtrans
                                         </h2>
                                         <p className="text-xs text-slate-500 mt-0.5">
-                                            Memantau pembayaran QRIS, Virtual Account, E-Wallet, serta mencatat donasi tunai sekretariat.
+                                            Otomatis membaca setiap transaksi donatur yang masuk dari Midtrans maupun input sekretariat.
                                         </p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
@@ -1284,7 +1448,6 @@ export default function AdminDashboard() {
                                     </div>
                                 </div>
 
-                                {/* Form Tambah Donasi Manual */}
                                 {showManualDonationForm && (
                                     <form
                                         onSubmit={handleSaveManualDonation}
@@ -1388,7 +1551,6 @@ export default function AdminDashboard() {
                                     </form>
                                 )}
 
-                                {/* Filter & Search Bar */}
                                 <div className="flex flex-col sm:flex-row gap-3 justify-between">
                                     <div className="relative flex-1 max-w-md">
                                         <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
@@ -1418,7 +1580,6 @@ export default function AdminDashboard() {
                                     </div>
                                 </div>
 
-                                {/* Table Donations */}
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-left border-collapse">
                                         <thead>
@@ -1904,7 +2065,7 @@ export default function AdminDashboard() {
                     )}
 
                     {/* ==================================================================== */}
-                    {/* TAB 5: GALERI KEGIATAN */}
+                    {/* TAB 5: GALERI KEGIATAN (FULL CRUD: UPLOAD FILE GAMBAR, EDIT & HAPUS) */}
                     {/* ==================================================================== */}
                     {activeMenu === 'gallery' && (
                         <div className="space-y-6">
@@ -1915,16 +2076,26 @@ export default function AdminDashboard() {
                                             Manajemen Galeri & Dokumentasi Kegiatan Panti
                                         </h2>
                                         <p className="text-xs text-slate-500 mt-0.5">
-                                            Foto kegiatan yang ditambahkan di sini akan langsung tampil di bagian Galeri halaman depan.
+                                            Upload foto langsung dari komputer/HP Anda, edit postingan, atau hapus dokumentasi kegiatan.
                                         </p>
                                     </div>
                                     <button
                                         type="button"
-                                        onClick={() => setShowGalleryForm(!showGalleryForm)}
+                                        onClick={() => {
+                                            setEditingGalleryId(null);
+                                            setGalleryForm({
+                                                title: '',
+                                                category: 'Pendidikan & Tahfidz',
+                                                date: 'November 2026',
+                                                description: '',
+                                                image_url: ''
+                                            });
+                                            setShowGalleryForm(!showGalleryForm);
+                                        }}
                                         className="btn-primary text-xs py-2 px-3.5"
                                     >
                                         <PlusIcon className="w-4 h-4" />
-                                        <span>Upload Dokumentasi Baru</span>
+                                        <span>Tambah Postingan Galeri</span>
                                     </button>
                                 </div>
 
@@ -1933,9 +2104,24 @@ export default function AdminDashboard() {
                                         onSubmit={handleSaveGallery}
                                         className="p-5 rounded-xl bg-slate-50 border border-slate-200 space-y-4"
                                     >
-                                        <h3 className="text-sm font-bold text-slate-900">
-                                            Publikasi Foto Kegiatan Baru
-                                        </h3>
+                                        <div className="flex items-center justify-between">
+                                            <h3 className="text-sm font-bold text-slate-900">
+                                                {editingGalleryId
+                                                    ? 'Edit Postingan Dokumentasi Galeri'
+                                                    : 'Tambah Postingan Kegiatan Baru'}
+                                            </h3>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setShowGalleryForm(false);
+                                                    setEditingGalleryId(null);
+                                                }}
+                                                className="text-xs text-slate-500 hover:text-slate-800"
+                                            >
+                                                Tutup [X]
+                                            </button>
+                                        </div>
+
                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                             <div>
                                                 <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -1968,14 +2154,55 @@ export default function AdminDashboard() {
                                                     <option value="Pangan & Gizi Asrama">Pangan & Gizi Asrama</option>
                                                     <option value="Keagamaan & Doa Bersama">Keagamaan & Doa Bersama</option>
                                                     <option value="Sosial Kemanusiaan">Sosial Kemanusiaan</option>
+                                                    <option value="Asrama & Kemandirian">Asrama & Kemandirian</option>
                                                 </select>
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                                    URL Foto Kegiatan
+                                                    Bulan / Tanggal Kegiatan
                                                 </label>
                                                 <input
-                                                    type="url"
+                                                    type="text"
+                                                    required
+                                                    value={galleryForm.date}
+                                                    onChange={(e) =>
+                                                        setGalleryForm({ ...galleryForm, date: e.target.value })
+                                                    }
+                                                    placeholder="Misal: November 2026"
+                                                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Upload File Gambar dari Komputer + Preview */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                                            <div className="space-y-2">
+                                                <label className="block text-xs font-semibold text-slate-700">
+                                                    Upload File Gambar (JPG / PNG / WEBP)
+                                                </label>
+                                                <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-300 rounded-xl bg-white hover:border-primary cursor-pointer transition-colors">
+                                                    <ArrowUpTrayIcon className="w-6 h-6 text-primary mb-1" />
+                                                    <span className="text-xs font-semibold text-slate-700">
+                                                        Klik untuk Pilih Foto dari Perangkat Anda
+                                                    </span>
+                                                    <span className="text-[11px] text-slate-400">
+                                                        Atau tempel URL gambar di kolom sebelah kanan
+                                                    </span>
+                                                    <input
+                                                        type="file"
+                                                        accept="image/*"
+                                                        onChange={handleImageFileUpload}
+                                                        className="hidden"
+                                                    />
+                                                </label>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <label className="block text-xs font-semibold text-slate-700">
+                                                    Atau URL Gambar & Pratinjau Foto
+                                                </label>
+                                                <input
+                                                    type="text"
                                                     value={galleryForm.image_url}
                                                     onChange={(e) =>
                                                         setGalleryForm({ ...galleryForm, image_url: e.target.value })
@@ -1983,14 +2210,24 @@ export default function AdminDashboard() {
                                                     placeholder="https://images.unsplash.com/..."
                                                     className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
                                                 />
+                                                {galleryForm.image_url && (
+                                                    <div className="relative h-28 w-48 rounded-lg overflow-hidden border border-slate-200 bg-white">
+                                                        <img
+                                                            src={galleryForm.image_url}
+                                                            alt="Preview"
+                                                            className="w-full h-full object-cover"
+                                                        />
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
+
                                         <div>
                                             <label className="block text-xs font-semibold text-slate-700 mb-1">
                                                 Keterangan / Deskripsi Kegiatan
                                             </label>
                                             <textarea
-                                                rows="2"
+                                                rows="3"
                                                 required
                                                 value={galleryForm.description}
                                                 onChange={(e) =>
@@ -2000,16 +2237,20 @@ export default function AdminDashboard() {
                                                 className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
                                             />
                                         </div>
+
                                         <div className="flex justify-end gap-2">
                                             <button
                                                 type="button"
-                                                onClick={() => setShowGalleryForm(false)}
+                                                onClick={() => {
+                                                    setShowGalleryForm(false);
+                                                    setEditingGalleryId(null);
+                                                }}
                                                 className="px-4 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-600"
                                             >
                                                 Batal
                                             </button>
                                             <button type="submit" className="btn-primary text-xs py-2 px-4">
-                                                Publikasikan ke Galeri
+                                                {editingGalleryId ? 'Simpan Perubahan Postingan' : 'Publikasikan ke Galeri'}
                                             </button>
                                         </div>
                                     </form>
@@ -2044,14 +2285,22 @@ export default function AdminDashboard() {
                                                     </p>
                                                 </div>
                                             </div>
-                                            <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex justify-end">
+                                            <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleEditGallery(item)}
+                                                    className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                                                >
+                                                    <PencilSquareIcon className="w-4 h-4" />
+                                                    <span>Edit Postingan</span>
+                                                </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => handleDeleteGallery(item.id)}
                                                     className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:underline"
                                                 >
                                                     <TrashIcon className="w-4 h-4" />
-                                                    <span>Hapus Foto</span>
+                                                    <span>Hapus</span>
                                                 </button>
                                             </div>
                                         </div>
@@ -2106,7 +2355,6 @@ export default function AdminDashboard() {
                                     </div>
                                 </div>
 
-                                {/* Executive Summary Box */}
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                     <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200">
                                         <span className="text-xs text-emerald-800 font-semibold block">
@@ -2134,7 +2382,6 @@ export default function AdminDashboard() {
                                     </div>
                                 </div>
 
-                                {/* Tabel Ringkasan LPJ */}
                                 <div>
                                     <h3 className="text-sm font-bold text-slate-900 mb-3">
                                         Rincian Mutasi Kas & Donasi Terbaru
