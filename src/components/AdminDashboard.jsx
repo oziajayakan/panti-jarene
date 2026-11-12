@@ -39,7 +39,11 @@ import {
     ArrowUpTrayIcon,
     SparklesIcon,
     ExclamationTriangleIcon,
-    DocumentMagnifyingGlassIcon
+    DocumentMagnifyingGlassIcon,
+    ChevronLeftIcon,
+    ChevronRightIcon,
+    ChevronDownIcon,
+    CommandLineIcon
 } from '@heroicons/react/24/outline';
 
 ChartJS.register(
@@ -421,10 +425,14 @@ export default function AdminDashboard() {
 
     // 2. Navigation & Notification State
     const [activeMenu, setActiveMenu] = useState('overview');
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
     const [notifications, setNotifications] = useState([]);
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+    const [showUserDropdown, setShowUserDropdown] = useState(false);
+    const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+    const [commandQuery, setCommandQuery] = useState('');
     const [readSidebarBadges, setReadSidebarBadges] = useState(() => {
         try {
             const raw = localStorage.getItem('assholihin_admin_read_badges');
@@ -538,6 +546,22 @@ export default function AdminDashboard() {
         description: '',
         image_url: ''
     });
+
+    // Keyboard shortcut (Cmd/Ctrl + K) untuk Command Palette ala Shadcn Admin
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                setCommandPaletteOpen((prev) => !prev);
+            } else if (e.key === 'Escape') {
+                setCommandPaletteOpen(false);
+                setShowNotifDropdown(false);
+                setShowUserDropdown(false);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
 
     const showToast = (msg) => {
         setToastMessage(msg);
@@ -1118,32 +1142,73 @@ export default function AdminDashboard() {
         }
     };
 
-    const menuItems = [
-        { id: 'overview', label: 'Ringkasan Dashboard', icon: Squares2X2Icon, total: 0, badge: 0 },
+    const menuGroups = [
         {
-            id: 'donations',
-            label: 'Donasi & Midtrans',
-            icon: BanknotesIcon,
-            total: donationList.length,
-            badge: getUnreadBadge('donations', donationList.length)
-        },
-        { id: 'kas', label: 'Buku Kas PSAK 109', icon: ArrowsRightLeftIcon, total: kasList.length, badge: 0 },
-        {
-            id: 'anak',
-            label: 'Anak & AI Adopsi',
-            icon: SparklesIcon,
-            total: anakList.length,
-            badge: getUnreadBadge('anak', anakList.length)
+            group: 'Utama',
+            items: [
+                {
+                    id: 'overview',
+                    label: 'Ringkasan Dashboard',
+                    shortcut: '1',
+                    icon: Squares2X2Icon,
+                    total: 0,
+                    badge: 0
+                }
+            ]
         },
         {
-            id: 'gallery',
-            label: 'Galeri Kegiatan',
-            icon: PhotoIcon,
-            total: galleryList.length,
-            badge: getUnreadBadge('gallery', galleryList.length)
+            group: 'Keuangan & Donasi',
+            items: [
+                {
+                    id: 'donations',
+                    label: 'Donasi & Midtrans',
+                    shortcut: '2',
+                    icon: BanknotesIcon,
+                    total: donationList.length,
+                    badge: getUnreadBadge('donations', donationList.length)
+                },
+                {
+                    id: 'kas',
+                    label: 'Buku Kas PSAK 109',
+                    shortcut: '3',
+                    icon: ArrowsRightLeftIcon,
+                    total: kasList.length,
+                    badge: 0
+                }
+            ]
         },
-        { id: 'laporan', label: 'Laporan LPJ & Export', icon: DocumentChartBarIcon, total: 0, badge: 0 }
+        {
+            group: 'Manajemen Sosial & Program',
+            items: [
+                {
+                    id: 'anak',
+                    label: 'Anak & AI Adopsi',
+                    shortcut: '4',
+                    icon: SparklesIcon,
+                    total: anakList.length,
+                    badge: getUnreadBadge('anak', anakList.length)
+                },
+                {
+                    id: 'gallery',
+                    label: 'Galeri Kegiatan',
+                    shortcut: '5',
+                    icon: PhotoIcon,
+                    total: galleryList.length,
+                    badge: getUnreadBadge('gallery', galleryList.length)
+                },
+                {
+                    id: 'laporan',
+                    label: 'Laporan LPJ & Export',
+                    shortcut: '6',
+                    icon: DocumentChartBarIcon,
+                    total: 0,
+                    badge: 0
+                }
+            ]
+        }
     ];
+
+    const menuItems = menuGroups.flatMap((g) => g.items);
 
     const chartDataConfig = {
         labels: ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'],
@@ -1227,123 +1292,228 @@ export default function AdminDashboard() {
                 </div>
             )}
 
-            {/* Sidebar */}
+            {/* Sidebar (Shadcn Admin Style AppSidebar with Collapsible Rail & Groups) */}
             <aside
-                className={`fixed inset-y-0 left-0 z-40 w-64 bg-primary-dark text-white flex flex-col justify-between transition-transform duration-200 lg:static lg:translate-x-0 ${
-                    mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-                }`}
+                className={`fixed inset-y-0 left-0 z-40 bg-primary-dark text-white flex flex-col justify-between transition-all duration-300 ease-in-out border-r border-emerald-900/60 shadow-elevated lg:static ${
+                    sidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-64'
+                } ${mobileSidebarOpen ? 'w-64 translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
             >
-                <div>
-                    <div className="p-5 border-b border-emerald-800/60 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <img
-                                src={`${import.meta.env.BASE_URL}img/logo.png`}
-                                alt="Logo"
-                                className="w-10 h-10 rounded-lg bg-white p-0.5 object-contain"
-                            />
-                            <div>
-                                <span className="font-heading font-bold text-sm text-white block leading-tight">
-                                    AS-SHOLIHIN
-                                </span>
-                                <span className="text-[11px] text-emerald-300 font-medium block">
-                                    Dashboard Admin
-                                </span>
+                <div className="flex flex-col h-full min-h-0">
+                    {/* Sidebar Header: Workspace / Logo Info */}
+                    <div className="p-4 border-b border-emerald-800/60 flex items-center justify-between shrink-0">
+                        <div className="flex items-center gap-3 overflow-hidden">
+                            <div className="w-10 h-10 rounded-xl bg-white p-1 flex items-center justify-center shrink-0 shadow-xs border border-white/20">
+                                <img
+                                    src={`${import.meta.env.BASE_URL}img/logo.png`}
+                                    alt="Logo"
+                                    className="w-full h-full object-contain"
+                                />
                             </div>
+                            {!sidebarCollapsed && (
+                                <div className="truncate">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="font-heading font-extrabold text-sm text-white tracking-wide block leading-tight truncate">
+                                            AS-SHOLIHIN
+                                        </span>
+                                        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/30">
+                                            Pro
+                                        </span>
+                                    </div>
+                                    <span className="text-[11px] text-emerald-300/80 font-medium block truncate">
+                                        Admin Management
+                                    </span>
+                                </div>
+                            )}
                         </div>
+
+                        {/* Mobile Close Button */}
                         <button
                             type="button"
                             onClick={() => setMobileSidebarOpen(false)}
-                            className="lg:hidden text-emerald-200 hover:text-white"
+                            className="lg:hidden text-emerald-200 hover:text-white p-1 rounded-lg hover:bg-emerald-900/50"
                         >
                             <XMarkIcon className="w-5 h-5" />
                         </button>
                     </div>
 
-                    <div className="p-3 space-y-1">
-                        {menuItems.map((item) => {
-                            const Icon = item.icon;
-                            const active = activeMenu === item.id;
-                            return (
-                                <button
-                                    key={item.id}
-                                    type="button"
-                                    onClick={() => {
-                                        setActiveMenu(item.id);
-                                        handleMarkMenuRead(item.id, item.total);
-                                        setMobileSidebarOpen(false);
-                                    }}
-                                    className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
-                                        active
-                                            ? 'bg-primary text-white shadow-xs ring-1 ring-emerald-500/40'
-                                            : 'text-emerald-100/80 hover:bg-emerald-900/50 hover:text-white'
-                                    }`}
-                                >
-                                    <span className="flex items-center gap-3">
-                                        <Icon className="w-5 h-5 shrink-0" />
-                                        <span>{item.label}</span>
-                                    </span>
-                                    {item.badge > 0 && (
-                                        <span
-                                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold tabular-nums animate-pulse ${
-                                                active ? 'bg-white text-primary' : 'bg-emerald-500 text-white'
+                    {/* Sidebar Content: Grouped Navigation Items */}
+                    <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+                        {menuGroups.map((grp, grpIdx) => (
+                            <div key={grpIdx} className="space-y-1">
+                                {!sidebarCollapsed ? (
+                                    <div className="px-3 pt-2 pb-1 text-[10px] font-extrabold uppercase tracking-wider text-emerald-300/60 select-none">
+                                        {grp.group}
+                                    </div>
+                                ) : (
+                                    <div className="w-full h-px bg-emerald-800/40 my-2" />
+                                )}
+
+                                {grp.items.map((item) => {
+                                    const Icon = item.icon;
+                                    const active = activeMenu === item.id;
+                                    return (
+                                        <button
+                                            key={item.id}
+                                            type="button"
+                                            title={sidebarCollapsed ? `${item.label} (Ctrl+K)` : undefined}
+                                            onClick={() => {
+                                                setActiveMenu(item.id);
+                                                handleMarkMenuRead(item.id, item.total);
+                                                setMobileSidebarOpen(false);
+                                            }}
+                                            className={`w-full flex items-center ${
+                                                sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-3'
+                                            } py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 group relative ${
+                                                active
+                                                    ? 'bg-primary text-white shadow-xs ring-1 ring-emerald-500/40'
+                                                    : 'text-emerald-100/75 hover:bg-emerald-900/40 hover:text-white'
                                             }`}
                                         >
-                                            {item.badge}
-                                        </span>
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
+                                            <span className="flex items-center gap-3 truncate">
+                                                <Icon className="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-110" />
+                                                {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
+                                            </span>
 
-                <div className="p-4 border-t border-emerald-800/60 space-y-2 bg-emerald-950/40">
-                    <Link
-                        to="/"
-                        className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-emerald-200 hover:bg-emerald-900/60 hover:text-white transition-colors"
-                    >
-                        <HomeIcon className="w-4 h-4" />
-                        <span>Lihat Website Publik</span>
-                    </Link>
-                    <button
-                        type="button"
-                        onClick={handleAdminLogout}
-                        className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-red-300 hover:bg-red-950/50 hover:text-red-200 transition-colors"
-                    >
-                        <ArrowRightOnRectangleIcon className="w-4 h-4" />
-                        <span>Keluar Sesi Admin</span>
-                    </button>
+                                            {!sidebarCollapsed && (
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    {item.badge > 0 && (
+                                                        <span
+                                                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold tabular-nums animate-pulse ${
+                                                                active ? 'bg-white text-primary' : 'bg-emerald-500 text-white'
+                                                            }`}
+                                                        >
+                                                            {item.badge}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {sidebarCollapsed && item.badge > 0 && (
+                                                <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-primary-dark animate-pulse" />
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Sidebar Footer: Quick Web Link & User Nav */}
+                    <div className="p-3 border-t border-emerald-800/60 bg-emerald-950/50 space-y-1.5 shrink-0">
+                        <Link
+                            to="/"
+                            title={sidebarCollapsed ? 'Lihat Website Publik' : undefined}
+                            className={`w-full flex items-center ${
+                                sidebarCollapsed ? 'justify-center px-2' : 'gap-2.5 px-3'
+                            } py-2 rounded-xl text-xs font-semibold text-emerald-200 hover:bg-emerald-900/50 hover:text-white transition-colors`}
+                        >
+                            <HomeIcon className="w-4 h-4 shrink-0" />
+                            {!sidebarCollapsed && <span>Website Publik</span>}
+                        </Link>
+
+                        {/* Desktop Sidebar Rail/Toggle Button */}
+                        <button
+                            type="button"
+                            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                            className="hidden lg:flex w-full items-center justify-center gap-2 py-1.5 text-xs text-emerald-300/70 hover:text-white hover:bg-emerald-900/40 rounded-lg transition-colors"
+                        >
+                            {sidebarCollapsed ? (
+                                <ChevronRightIcon className="w-4 h-4" />
+                            ) : (
+                                <>
+                                    <ChevronLeftIcon className="w-4 h-4" />
+                                    <span className="text-[11px] font-medium">Perkecil Sidebar</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
                 </div>
             </aside>
 
-            {/* Main Content Area */}
+            {/* Main Content Area (SidebarInset in Shadcn Admin) */}
             <div className="flex-1 flex flex-col min-w-0">
-                {/* Topbar */}
-                <header className="bg-white border-b border-slate-200/80 sticky top-0 z-30">
+                {/* Header: Sticky Top Navigation with Breadcrumbs, Global Search, Actions */}
+                <header className="bg-white/95 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-30 transition-all">
                     <div className="px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+                        {/* Left: Mobile Trigger & Shadcn-style Breadcrumbs */}
                         <div className="flex items-center gap-3">
                             <button
                                 type="button"
                                 onClick={() => setMobileSidebarOpen(true)}
-                                className="lg:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100"
+                                className="lg:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
+                                aria-label="Buka Menu"
                             >
-                                <Bars3Icon className="w-6 h-6" />
+                                <Bars3Icon className="w-5 h-5" />
                             </button>
-                            <div>
-                                <h1 className="text-base sm:text-lg font-heading font-bold text-slate-900">
-                                    {menuItems.find((m) => m.id === activeMenu)?.label}
-                                </h1>
-                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                                className="hidden lg:flex p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors"
+                                title={sidebarCollapsed ? 'Perluas Sidebar' : 'Perkecil Sidebar'}
+                            >
+                                <Bars3Icon className="w-5 h-5" />
+                            </button>
+
+                            <div className="h-5 w-px bg-slate-200 hidden sm:block" />
+
+                            {/* Breadcrumbs */}
+                            <nav className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                                <span className="text-slate-400 hidden sm:inline">Admin</span>
+                                <span className="text-slate-300 hidden sm:inline">/</span>
+                                <span className="font-bold text-slate-900">
+                                    {menuItems.find((m) => m.id === activeMenu)?.label || 'Dashboard'}
+                                </span>
+                            </nav>
                         </div>
 
-                        <div className="flex items-center gap-3">
+                        {/* Right: Quick Search Button, Notification Bell, User Dropdown */}
+                        <div className="flex items-center gap-2.5 sm:gap-3">
+                            {/* Command Palette Trigger Button (Shadcn style Cmd+K) */}
+                            <button
+                                type="button"
+                                onClick={() => setCommandPaletteOpen(true)}
+                                className="hidden sm:inline-flex items-center gap-3 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs text-slate-500 hover:text-slate-800 transition-colors shadow-2xs"
+                            >
+                                <span className="flex items-center gap-1.5">
+                                    <MagnifyingGlassIcon className="w-3.5 h-3.5 text-slate-400" />
+                                    <span>Cari cepat menu...</span>
+                                </span>
+                                <kbd className="font-mono text-[10px] font-semibold bg-white border border-slate-200 rounded px-1.5 py-0.5 text-slate-500 shadow-2xs">
+                                    ⌘K
+                                </kbd>
+                            </button>
+
+                            {/* Mobile search icon */}
+                            <button
+                                type="button"
+                                onClick={() => setCommandPaletteOpen(true)}
+                                className="sm:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100"
+                            >
+                                <MagnifyingGlassIcon className="w-5 h-5" />
+                            </button>
+
+                            {/* Sync Status Button */}
+                            <button
+                                type="button"
+                                onClick={() => syncMidtransOrders(false)}
+                                disabled={isSyncingMidtrans}
+                                title="Sinkronkan Transaksi Midtrans"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors"
+                            >
+                                <ArrowPathIcon
+                                    className={`w-4 h-4 text-primary ${isSyncingMidtrans ? 'animate-spin' : ''}`}
+                                />
+                                <span className="hidden md:inline">Sinkronkan</span>
+                            </button>
+
                             {/* Live Notification Bell */}
                             <div className="relative">
                                 <button
                                     type="button"
                                     onClick={handleToggleBellDropdown}
                                     className="relative p-2 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-colors"
-                                    title="Notifikasi Donatur Masuk"
+                                    title="Notifikasi Masuk"
                                 >
                                     <BellAlertIcon className="w-5 h-5 text-primary" />
                                     {unreadBellCount > 0 && (
@@ -1406,34 +1576,180 @@ export default function AdminDashboard() {
                                 )}
                             </div>
 
-                            <button
-                                type="button"
-                                onClick={() => syncMidtransOrders(false)}
-                                disabled={isSyncingMidtrans}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors"
-                            >
-                                <ArrowPathIcon className={`w-4 h-4 text-primary ${isSyncingMidtrans ? 'animate-spin' : ''}`} />
-                                <span className="hidden sm:inline">Sinkronkan</span>
-                            </button>
-
                             <div className="h-6 w-px bg-slate-200 hidden sm:block" />
 
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-full bg-primary-light text-primary font-bold text-xs flex items-center justify-center border border-emerald-200">
-                                    A
-                                </div>
-                                <div className="hidden md:block text-left">
-                                    <span className="text-xs font-bold text-slate-900 block leading-none">
-                                        {adminUser.name}
-                                    </span>
-                                    <span className="text-[10px] font-semibold text-primary block mt-0.5">
-                                        Administrator
-                                    </span>
-                                </div>
+                            {/* User Profile Dropdown Menu (NavUser ala Shadcn Admin) */}
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowUserDropdown(!showUserDropdown)}
+                                    className="flex items-center gap-2.5 p-1 sm:px-2 py-1 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200"
+                                >
+                                    <div className="w-8 h-8 rounded-full bg-primary text-white font-bold text-xs flex items-center justify-center shadow-2xs">
+                                        A
+                                    </div>
+                                    <div className="hidden md:block text-left">
+                                        <span className="text-xs font-bold text-slate-900 block leading-tight">
+                                            {adminUser.name}
+                                        </span>
+                                        <span className="text-[10px] font-semibold text-primary block">
+                                            admin@panti.com
+                                        </span>
+                                    </div>
+                                    <ChevronDownIcon className="w-3.5 h-3.5 text-slate-400 hidden md:block" />
+                                </button>
+
+                                {showUserDropdown && (
+                                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl border border-slate-200 shadow-elevated z-50 p-1.5 animate-fade-up">
+                                        <div className="px-3 py-2 border-b border-slate-100 mb-1">
+                                            <p className="text-xs font-bold text-slate-900 leading-none">
+                                                {adminUser.name}
+                                            </p>
+                                            <p className="text-[11px] text-slate-500 mt-1 truncate">
+                                                {adminUser.email}
+                                            </p>
+                                        </div>
+                                        <Link
+                                            to="/"
+                                            onClick={() => setShowUserDropdown(false)}
+                                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                                        >
+                                            <HomeIcon className="w-4 h-4 text-slate-500" />
+                                            <span>Lihat Halaman Publik</span>
+                                        </Link>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowUserDropdown(false);
+                                                setCommandPaletteOpen(true);
+                                            }}
+                                            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <CommandLineIcon className="w-4 h-4 text-slate-500" />
+                                                <span>Command Palette</span>
+                                            </span>
+                                            <kbd className="text-[10px] text-slate-400">⌘K</kbd>
+                                        </button>
+                                        <div className="h-px bg-slate-100 my-1" />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowUserDropdown(false);
+                                                handleAdminLogout();
+                                            }}
+                                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors"
+                                        >
+                                            <ArrowRightOnRectangleIcon className="w-4 h-4" />
+                                            <span>Keluar Sesi</span>
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
                 </header>
+
+                {/* Command Palette Modal (Cmd/Ctrl + K) ala Shadcn Admin */}
+                {commandPaletteOpen && (
+                    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-slate-900/50 backdrop-blur-xs animate-fade-up">
+                        <div
+                            className="fixed inset-0"
+                            onClick={() => setCommandPaletteOpen(false)}
+                        />
+                        <div className="relative w-full max-w-lg bg-white rounded-2xl border border-slate-200 shadow-elevated overflow-hidden z-10">
+                            <div className="p-3 border-b border-slate-100 flex items-center gap-2.5">
+                                <MagnifyingGlassIcon className="w-5 h-5 text-slate-400 shrink-0" />
+                                <input
+                                    type="text"
+                                    autoFocus
+                                    value={commandQuery}
+                                    onChange={(e) => setCommandQuery(e.target.value)}
+                                    placeholder="Ketik nama menu, aksi, atau program..."
+                                    className="w-full text-sm bg-transparent outline-none text-slate-800 placeholder-slate-400"
+                                />
+                                <kbd className="text-[10px] font-mono font-semibold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
+                                    ESC
+                                </kbd>
+                            </div>
+
+                            <div className="max-h-72 overflow-y-auto p-2 space-y-1">
+                                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                    Navigasi Cepat Menu Admin
+                                </div>
+                                {menuItems
+                                    .filter((m) => m.label.toLowerCase().includes(commandQuery.toLowerCase()))
+                                    .map((item) => {
+                                        const Icon = item.icon;
+                                        return (
+                                            <button
+                                                key={item.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    setActiveMenu(item.id);
+                                                    handleMarkMenuRead(item.id, item.total);
+                                                    setCommandPaletteOpen(false);
+                                                    setCommandQuery('');
+                                                }}
+                                                className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-primary transition-colors text-left"
+                                            >
+                                                <span className="flex items-center gap-2.5">
+                                                    <Icon className="w-4 h-4 text-primary" />
+                                                    <span>{item.label}</span>
+                                                </span>
+                                                <span className="text-[10px] text-slate-400">Pilih →</span>
+                                            </button>
+                                        );
+                                    })}
+
+                                <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                    Aksi Singkat
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setCommandPaletteOpen(false);
+                                        setActiveMenu('kas');
+                                        setShowKasForm(true);
+                                    }}
+                                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-primary transition-colors text-left"
+                                >
+                                    <span className="flex items-center gap-2.5">
+                                        <PlusIcon className="w-4 h-4 text-emerald-600" />
+                                        <span>+ Catat Kas PSAK 109 Baru</span>
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setCommandPaletteOpen(false);
+                                        setActiveMenu('anak');
+                                        setShowAnakForm(true);
+                                    }}
+                                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-primary transition-colors text-left"
+                                >
+                                    <span className="flex items-center gap-2.5">
+                                        <SparklesIcon className="w-4 h-4 text-emerald-600" />
+                                        <span>+ Tambah & Cek AI Kelayakan Adopsi Anak</span>
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setCommandPaletteOpen(false);
+                                        handleExportCSV();
+                                    }}
+                                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-primary transition-colors text-left"
+                                >
+                                    <span className="flex items-center gap-2.5">
+                                        <ArrowDownTrayIcon className="w-4 h-4 text-emerald-600" />
+                                        <span>Unduh Laporan Keuangan LPJ (CSV)</span>
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Page Body */}
                 <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1">
