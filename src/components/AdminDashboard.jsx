@@ -70,6 +70,11 @@ const DEFAULT_ADMIN_ACCOUNTS = [
     }
 ];
 
+const GEMINI_API_KEY =
+    import.meta.env.VITE_GEMINI_API_KEY ||
+    (typeof window !== 'undefined' ? window.__GEMINI_API_KEY__ || '' : '');
+const GEMINI_MODEL = 'gemini-3.5-flash';
+
 /**
  * AI Engine untuk menyelidiki apakah anak layak diadopsi secara legal (PP 54/2007)
  * atau dialihkan ke Program Orang Tua Asuh (Foster Care) / Pembinaan Asrama.
@@ -503,6 +508,15 @@ export default function AdminDashboard() {
     });
 
     const [selectedAnakForAI, setSelectedAnakForAI] = useState(null);
+    const [geminiAnalysisMap, setGeminiAnalysisMap] = useState(() => {
+        try {
+            const raw = localStorage.getItem('assholihin_gemini_adoption_cache');
+            return raw ? JSON.parse(raw) : {};
+        } catch {
+            return {};
+        }
+    });
+    const [geminiLoadingMap, setGeminiLoadingMap] = useState({});
 
     const [kasList, setKasList] = useState(() => {
         try {
@@ -625,6 +639,120 @@ export default function AdminDashboard() {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('assholihin_gemini_adoption_cache', JSON.stringify(geminiAnalysisMap));
+        } catch {
+            // ignore
+        }
+    }, [geminiAnalysisMap]);
+
+    /**
+     * Memanggil Gemini 3.5 Flash API untuk analisis adopsi anak secara mendalam
+     */
+    const requestGeminiAdoptionAnalysis = async (child, forceRefresh = false) => {
+        if (!child) return;
+        const childKey = `${child.id}_${child.nama}_${child.usia}_${child.statusWali || ''}_${child.dokumenHukum || ''}`;
+        
+        if (!forceRefresh && geminiAnalysisMap[childKey]) {
+            return;
+        }
+
+        setGeminiLoadingMap((prev) => ({ ...prev, [child.id]: true }));
+
+        const prompt = `Anda adalah sistem AI Pakar Hukum Adopsi Anak & Perlindungan Anak Indonesia (PP No. 54 Tahun 2007 dan Permensos No. 110/2014).
+Analisis kasus anak asuh berikut:
+- Nama: ${child.nama}
+- Usia: ${child.usia} tahun
+- Jenis Kelamin: ${child.jk}
+- Kategori Panti: ${child.kategori || 'Yatim'}
+- Status Wali / Nasab: ${child.statusWali || 'Tanpa Wali / Terlantar'}
+- Dokumen Hukum: ${child.dokumenHukum || 'Lengkap (Akta + Berita Acara Dinsos)'}
+- Kondisi Psikologis: ${child.kondisiPsikologis || 'Stabil & Siap Adaptasi'}
+- Kronologi & Latar Belakang: ${child.latarBelakang || 'Anak masuk panti untuk pemenuhan kebutuhan pengasuhan dan pendidikan.'}
+
+Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Balas HANYA JSON murni (tanpa format markdown atau tanda petik backtick):
+{
+  "score": 92,
+  "verdict": "LAYAK DIADOPSI (REKOMENDASI COTA)",
+  "statusType": "success",
+  "summary": "Penjelasan ringkas kelayakan adopsi dalam 2-3 kalimat lugas.",
+  "analysis": {
+    "wali": "Analisis status perwalian dan nasab hukum",
+    "usia": "Analisis kesesuaian kategori usia anak",
+    "dokumen": "Analisis kelengkapan dokumen legal dan sidang PIPA",
+    "psikologis": "Analisis kondisi psikologis dan masa adaptasi"
+  },
+  "recommendations": [
+    "Langkah konkret 1",
+    "Langkah konkret 2",
+    "Langkah konkret 3"
+  ]
+}`;
+
+        try {
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }]
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Gemini API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            let rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            // Membersihkan tanda backtick bila ada
+            rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(rawText);
+
+            setGeminiAnalysisMap((prev) => ({
+                ...prev,
+                [childKey]: {
+                    ...parsed,
+                    analyzedAt: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+                    source: 'Gemini 3.5 Flash'
+                }
+            }));
+            showToast(`Analisis Gemini AI selesai untuk ${child.nama}!`);
+        } catch (err) {
+            console.warn('Gemini AI fetch fallback to local:', err);
+            // Fallback deterministic
+            const fallback = evaluateChildAdoptionAI(child);
+            setGeminiAnalysisMap((prev) => ({
+                ...prev,
+                [childKey]: {
+                    score: fallback.score,
+                    verdict: fallback.verdict,
+                    statusType: fallback.score >= 75 ? 'success' : fallback.score >= 45 ? 'warning' : 'danger',
+                    summary: fallback.recommendation,
+                    analysis: {
+                        wali: fallback.findings[0] || 'Evaluasi status perwalian standar asrama.',
+                        usia: fallback.findings[1] || 'Kesesuaian usia menurut PP No. 54/2007.',
+                        dokumen: fallback.findings[2] || 'Kelengkapan administrasi asrama.',
+                        psikologis: fallback.findings[3] || 'Kondisi psikologis anak terpantau baik.'
+                    },
+                    recommendations: [
+                        'Verifikasi dokumen berkala bersama pengurus yayasan.',
+                        fallback.score >= 75
+                            ? 'Koordinasi dengan Tim PIPA Dinsos terkait kelayakan COTA.'
+                            : 'Fokuskan anak pada program pendidikan asrama & Orang Tua Asuh.',
+                        'Pantau perkembangan emosional dan hafalan Al-Quran secara berkelanjutan.'
+                    ],
+                    analyzedAt: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+                    source: 'Aturan Terintegrasi (Fallback Offline)'
+                }
+            }));
+            showToast(`Analisis lokal siap untuk ${child.nama}`);
+        } finally {
+            setGeminiLoadingMap((prev) => ({ ...prev, [child.id]: false }));
+        }
+    };
 
     const showToast = (msg) => {
         setToastMessage(msg);
@@ -2552,93 +2680,210 @@ export default function AdminDashboard() {
 
                             {/* AI Detailed Investigation Panel (If a child is selected) */}
                             {selectedAnakForAI && (() => {
-                                const aiResult = evaluateChildAdoptionAI(selectedAnakForAI);
+                                const fallback = evaluateChildAdoptionAI(selectedAnakForAI);
+                                const childKey = `${selectedAnakForAI.id}_${selectedAnakForAI.nama}_${selectedAnakForAI.usia}_${selectedAnakForAI.statusWali || ''}_${selectedAnakForAI.dokumenHukum || ''}`;
+                                const geminiData = geminiAnalysisMap[childKey];
+                                const isLoading = geminiLoadingMap[selectedAnakForAI.id];
+
+                                const score = geminiData ? geminiData.score : fallback.score;
+                                const verdict = geminiData ? geminiData.verdict : fallback.verdict;
+                                const summary = geminiData ? geminiData.summary : fallback.recommendation;
+                                const isPass = score >= 75;
+                                const isFoster = score >= 45 && score < 75;
+
                                 return (
-                                    <div className="bg-white rounded-2xl border-2 border-primary shadow-elevated overflow-hidden">
-                                        <div className="px-6 py-4 bg-primary text-white flex items-center justify-between">
-                                            <div className="flex items-center gap-2.5">
-                                                <SparklesIcon className="w-5 h-5 text-emerald-300" />
+                                    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-card overflow-hidden transition-all duration-300">
+                                        {/* Elegant Header */}
+                                        <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
+                                                    <SparklesIcon className="w-5 h-5 text-primary" />
+                                                </div>
                                                 <div>
-                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-200 block">
-                                                        Laporan AI Investigasi Kelayakan Adopsi (PP No. 54/2007 & Permensos 110/2014)
-                                                    </span>
-                                                    <h3 className="text-base font-bold">
-                                                        Hasil Penyelidikan Latar Belakang: {selectedAnakForAI.nama}
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
+                                                            Penyelidikan AI Kelayakan Adopsi
+                                                        </span>
+                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">
+                                                            {geminiData?.source || 'Gemini 3.5 Flash'}
+                                                        </span>
+                                                    </div>
+                                                    <h3 className="text-base font-bold text-slate-900">
+                                                        {selectedAnakForAI.nama}{' '}
+                                                        <span className="text-xs font-normal text-slate-500">
+                                                            ({selectedAnakForAI.usia} Thn • {selectedAnakForAI.kategori})
+                                                        </span>
                                                     </h3>
                                                 </div>
                                             </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => setSelectedAnakForAI(null)}
-                                                className="text-xs bg-emerald-800 hover:bg-emerald-700 px-3 py-1 rounded-lg font-semibold"
-                                            >
-                                                Tutup Analisis [X]
-                                            </button>
+
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    disabled={isLoading}
+                                                    onClick={() => requestGeminiAdoptionAnalysis(selectedAnakForAI, true)}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-sm transition-colors disabled:opacity-50"
+                                                >
+                                                    <ArrowPathIcon className={`w-3.5 h-3.5 text-primary ${isLoading ? 'animate-spin' : ''}`} />
+                                                    <span>{isLoading ? 'Menganalisis...' : 'Analisis Ulang AI'}</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedAnakForAI(null)}
+                                                    className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                                                    title="Tutup Panel"
+                                                >
+                                                    <XMarkIcon className="w-4 h-4" />
+                                                </button>
+                                            </div>
                                         </div>
 
-                                        <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                                            {/* Score & Final Decision */}
-                                            <div className="lg:col-span-4 p-5 rounded-xl bg-slate-50 border border-slate-200 space-y-4">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-xs font-bold text-slate-500 uppercase">
-                                                        Skor Kelayakan AI
-                                                    </span>
-                                                    <span className="text-2xl font-mono font-extrabold text-primary">
-                                                        {aiResult.score}%
-                                                    </span>
-                                                </div>
-                                                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                                                    <div
-                                                        className={`h-full rounded-full ${
-                                                            aiResult.score >= 75
-                                                                ? 'bg-emerald-600'
-                                                                : aiResult.score >= 45
-                                                                ? 'bg-amber-500'
-                                                                : 'bg-red-500'
-                                                        }`}
-                                                        style={{ width: `${aiResult.score}%` }}
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <span
-                                                        className={`inline-block px-3 py-1 rounded-full text-xs font-bold border ${aiResult.badgeColor}`}
-                                                    >
-                                                        {aiResult.verdict}
-                                                    </span>
-                                                </div>
-                                                <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                                                    {aiResult.recommendation}
-                                                </p>
-                                            </div>
-
-                                            {/* Background Investigation Findings */}
-                                            <div className="lg:col-span-8 space-y-4">
-                                                <div className="p-4 rounded-xl bg-mint border border-emerald-200/80">
-                                                    <span className="text-xs font-bold text-primary uppercase block mb-1">
-                                                        Kronologi & Latar Belakang Keluarga Anak:
-                                                    </span>
-                                                    <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
-                                                        {aiResult.riwayatLatar}
+                                        <div className="p-6">
+                                            {isLoading ? (
+                                                <div className="py-12 text-center space-y-3">
+                                                    <div className="inline-block w-8 h-8 border-3 border-primary/30 border-t-primary rounded-full animate-spin" />
+                                                    <p className="text-sm font-semibold text-slate-800">
+                                                        Sedang menyelidiki latar belakang anak dengan Gemini 3.5 Flash...
+                                                    </p>
+                                                    <p className="text-xs text-slate-400">
+                                                        Memeriksa kepatuhan PP No. 54/2007, nasab keluarga, usia, dan psikologis.
                                                     </p>
                                                 </div>
+                                            ) : (
+                                                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                                                    {/* Left: Score Card & Decision */}
+                                                    <div className="lg:col-span-4 p-5 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-4">
+                                                        <div>
+                                                            <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-1.5">
+                                                                <span>Skor Kelayakan Adopsi</span>
+                                                                <span className="font-mono text-sm font-bold text-slate-900">
+                                                                    {score}/100
+                                                                </span>
+                                                            </div>
+                                                            <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                                                                <div
+                                                                    className={`h-full rounded-full transition-all duration-500 ${
+                                                                        isPass ? 'bg-emerald-500' : isFoster ? 'bg-amber-500' : 'bg-rose-500'
+                                                                    }`}
+                                                                    style={{ width: `${score}%` }}
+                                                                />
+                                                            </div>
+                                                        </div>
 
-                                                <div>
-                                                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2.5">
-                                                        Rincian Temuan Investigasi AI (5 Parameter):
-                                                    </h4>
-                                                    <ul className="space-y-2">
-                                                        {aiResult.findings.map((f, idx) => (
-                                                            <li
-                                                                key={idx}
-                                                                className="flex items-start gap-2.5 text-xs sm:text-sm text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200/70"
+                                                        <div>
+                                                            <span
+                                                                className={`inline-block px-3 py-1 rounded-full text-xs font-bold border ${
+                                                                    isPass
+                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                        : isFoster
+                                                                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                        : 'bg-rose-50 text-rose-700 border-rose-200'
+                                                                }`}
                                                             >
-                                                                <CheckBadgeIcon className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                                                                <span>{f}</span>
-                                                            </li>
-                                                        ))}
-                                                    </ul>
+                                                                {verdict}
+                                                            </span>
+                                                        </div>
+
+                                                        <p className="text-xs text-slate-600 leading-relaxed">
+                                                            {summary}
+                                                        </p>
+
+                                                        {/* Info Singkat Berkas */}
+                                                        <div className="pt-3 border-t border-slate-200/70 space-y-1.5 text-[11px]">
+                                                            <div className="flex justify-between">
+                                                                <span className="text-slate-400">Status Nasab:</span>
+                                                                <span className="font-semibold text-slate-700">{selectedAnakForAI.statusWali}</span>
+                                                            </div>
+                                                            <div className="flex justify-between">
+                                                                <span className="text-slate-400">Dokumen:</span>
+                                                                <span className="font-semibold text-slate-700">{selectedAnakForAI.dokumenHukum}</span>
+                                                            </div>
+                                                            <div className="flex justify-between">
+                                                                <span className="text-slate-400">Psikososial:</span>
+                                                                <span className="font-semibold text-slate-700">{selectedAnakForAI.kondisiPsikologis}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Right: Detailed Legal & Psychological Breakdown */}
+                                                    <div className="lg:col-span-8 space-y-4">
+                                                        {/* Latar Belakang / Kronologi */}
+                                                        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/70">
+                                                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                                                                Kronologi & Latar Belakang Keluarga:
+                                                            </span>
+                                                            <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                                                                {selectedAnakForAI.latarBelakang || 'Anak masuk ke asrama panti asuhan untuk pemenuhan hak pengasuhan, tempat tinggal yang layak, dan kelangsungan pendidikan.'}
+                                                            </p>
+                                                        </div>
+
+                                                        {/* Grid 4 Parameter AI */}
+                                                        <div>
+                                                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2.5">
+                                                                Hasil Analisis 4 Aspek (PP No. 54/2007 & Permensos):
+                                                            </h4>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                                <div className="p-3 rounded-lg bg-white border border-slate-200/80 shadow-xs">
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        <CheckBadgeIcon className="w-4 h-4 text-primary shrink-0" />
+                                                                        <span className="text-xs font-bold text-slate-800">Status Wali & Nasab</span>
+                                                                    </div>
+                                                                    <p className="text-xs text-slate-600 leading-relaxed">
+                                                                        {geminiData?.analysis?.wali || fallback.findings[0] || 'Kesesuaian hak perwalian terkonfirmasi.'}
+                                                                    </p>
+                                                                </div>
+
+                                                                <div className="p-3 rounded-lg bg-white border border-slate-200/80 shadow-xs">
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        <CheckBadgeIcon className="w-4 h-4 text-primary shrink-0" />
+                                                                        <span className="text-xs font-bold text-slate-800">Kesesuaian Usia</span>
+                                                                    </div>
+                                                                    <p className="text-xs text-slate-600 leading-relaxed">
+                                                                        {geminiData?.analysis?.usia || fallback.findings[1] || 'Usia memenuhi kriteria pembinaan.'}
+                                                                    </p>
+                                                                </div>
+
+                                                                <div className="p-3 rounded-lg bg-white border border-slate-200/80 shadow-xs">
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        <CheckBadgeIcon className="w-4 h-4 text-primary shrink-0" />
+                                                                        <span className="text-xs font-bold text-slate-800">Legalitas Dokumen</span>
+                                                                    </div>
+                                                                    <p className="text-xs text-slate-600 leading-relaxed">
+                                                                        {geminiData?.analysis?.dokumen || fallback.findings[2] || 'Dokumen administrasi dalam arsip.'}
+                                                                    </p>
+                                                                </div>
+
+                                                                <div className="p-3 rounded-lg bg-white border border-slate-200/80 shadow-xs">
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        <CheckBadgeIcon className="w-4 h-4 text-primary shrink-0" />
+                                                                        <span className="text-xs font-bold text-slate-800">Psikologis & Emosi</span>
+                                                                    </div>
+                                                                    <p className="text-xs text-slate-600 leading-relaxed">
+                                                                        {geminiData?.analysis?.psikologis || fallback.findings[3] || 'Kesiapan adaptasi anak stabil.'}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Rekomendasi Tindak Lanjut */}
+                                                        {geminiData?.recommendations && (
+                                                            <div className="p-3.5 rounded-xl bg-emerald-50/50 border border-emerald-100">
+                                                                <h4 className="text-xs font-bold text-primary uppercase tracking-wider mb-2">
+                                                                    Langkah Rekomendasi Bagi Pengurus Yayasan:
+                                                                </h4>
+                                                                <ul className="space-y-1.5">
+                                                                    {geminiData.recommendations.map((rec, i) => (
+                                                                        <li key={i} className="flex items-start gap-2 text-xs text-slate-700">
+                                                                            <span className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
+                                                                            <span>{rec}</span>
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            )}
                                         </div>
                                     </div>
                                 );
@@ -2902,10 +3147,13 @@ export default function AdminDashboard() {
                                                         <td className="py-3.5 pl-4 text-right space-x-1.5 whitespace-nowrap">
                                                             <button
                                                                 type="button"
-                                                                onClick={() => setSelectedAnakForAI(anak)}
-                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-light text-primary hover:bg-primary hover:text-white text-xs font-semibold transition-colors"
+                                                                onClick={() => {
+                                                                    setSelectedAnakForAI(anak);
+                                                                    requestGeminiAdoptionAnalysis(anak, false);
+                                                                }}
+                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200 text-xs font-semibold transition-all duration-150 shadow-xs"
                                                             >
-                                                                <DocumentMagnifyingGlassIcon className="w-4 h-4" />
+                                                                <SparklesIcon className="w-3.5 h-3.5 text-emerald-600 group-hover:text-white" />
                                                                 <span>Cek AI Adopsi</span>
                                                             </button>
                                                             <button
