@@ -22,6 +22,7 @@ export default function DonationModal({ isOpen, setIsOpen, initialData }) {
     const [loading, setLoading] = useState(false);
     const [paymentTab, setPaymentTab] = useState('gateway'); // 'gateway' | 'qris_static'
     const [isAnonymous, setIsAnonymous] = useState(false);
+    const [activePrograms, setActivePrograms] = useState([]);
     const [formData, setFormData] = useState({
         nama: '',
         email: '',
@@ -30,6 +31,21 @@ export default function DonationModal({ isOpen, setIsOpen, initialData }) {
         pesan: '',
         no_wa: ''
     });
+
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem('assholihin_admin_programs');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    setActivePrograms(parsed);
+                    if (!initialData?.program && parsed[0]?.title) {
+                        setFormData((prev) => ({ ...prev, program: parsed[0].title }));
+                    }
+                }
+            }
+        } catch {}
+    }, [isOpen]);
 
     useEffect(() => {
         if (initialData) {
@@ -279,11 +295,21 @@ export default function DonationModal({ isOpen, setIsOpen, initialData }) {
                                                 onChange={handleChange}
                                                 className="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 bg-slate-50/50 text-sm font-semibold text-slate-800 focus:outline-none focus:border-primary"
                                             >
-                                                <option value="Santunan & Pendidikan Anak Yatim">Santunan & Pendidikan Anak Yatim</option>
-                                                <option value="Pemenuhan Pangan & Gizi Asrama">Pemenuhan Pangan & Gizi Asrama</option>
-                                                <option value="Zakat Maal / Zakat Penghasilan">Zakat Maal / Zakat Penghasilan</option>
-                                                <option value="Sedekah Subuh & Operasional Panti">Sedekah Subuh & Operasional Panti</option>
-                                                <option value="Wakaf Pemeliharaan Asrama">Wakaf Pemeliharaan Asrama</option>
+                                                {activePrograms.length > 0 ? (
+                                                    activePrograms.map((p) => (
+                                                        <option key={p.id} value={p.title}>
+                                                            {p.title} ({p.category})
+                                                        </option>
+                                                    ))
+                                                ) : (
+                                                    <>
+                                                        <option value="Santunan & Pendidikan Anak Yatim">Santunan & Pendidikan Anak Yatim</option>
+                                                        <option value="Pemenuhan Pangan & Gizi Asrama">Pemenuhan Pangan & Gizi Asrama</option>
+                                                        <option value="Zakat Maal / Zakat Penghasilan">Zakat Maal / Zakat Penghasilan</option>
+                                                        <option value="Sedekah Subuh & Operasional Panti">Sedekah Subuh & Operasional Panti</option>
+                                                        <option value="Wakaf Pemeliharaan Asrama">Wakaf Pemeliharaan Asrama</option>
+                                                    </>
+                                                )}
                                             </select>
                                         </div>
 

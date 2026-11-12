@@ -43,7 +43,8 @@ import {
     ChevronLeftIcon,
     ChevronRightIcon,
     ChevronDownIcon,
-    CommandLineIcon
+    CommandLineIcon,
+    RectangleStackIcon
 } from '@heroicons/react/24/outline';
 
 ChartJS.register(
@@ -386,6 +387,45 @@ const DEFAULT_GALLERY_ITEMS = [
     }
 ];
 
+const DEFAULT_CAMPAIGNS = [
+    {
+        id: 'pendidikan',
+        category: 'Pendidikan',
+        title: 'Beasiswa SPP & Seragam Sekolah Santri',
+        description: 'Menjamin biaya SPP, buku & perlengkapan sekolah SD hingga SMA.',
+        collected: 18450000,
+        target: 25000000,
+        donors: 142
+    },
+    {
+        id: 'pangan',
+        category: 'Pangan & Gizi',
+        title: 'Beras, Lauk Bergizi & Vitamin Harian',
+        description: 'Kebutuhan makan sehat 3x sehari bagi seluruh anak asuh mukim.',
+        collected: 12800000,
+        target: 15000000,
+        donors: 98
+    },
+    {
+        id: 'wakaf',
+        category: 'Sarana Asrama',
+        title: 'Pemeliharaan Kamar & Ruang Belajar',
+        description: 'Perbaikan fasilitas tidur, lemari belajar, dan sanitasi asrama.',
+        collected: 34200000,
+        target: 50000000,
+        donors: 215
+    },
+    {
+        id: 'santunan',
+        category: 'Sosial Yatim',
+        title: 'Santunan Yatim Non-Mukim & Dhuafa',
+        description: 'Paket sembako & uang saku pendidikan yatim sekitar Candimulyo.',
+        collected: 9250000,
+        target: 12000000,
+        donors: 76
+    }
+];
+
 const SAMPLE_DONATIONS = [
     {
         id: 'ORD-20261031-091',
@@ -486,6 +526,17 @@ export default function AdminDashboard() {
         }
     });
 
+    const [programList, setProgramList] = useState(() => {
+        try {
+            const raw = localStorage.getItem('assholihin_admin_programs');
+            if (raw) return JSON.parse(raw);
+            localStorage.setItem('assholihin_admin_programs', JSON.stringify(DEFAULT_CAMPAIGNS));
+            return DEFAULT_CAMPAIGNS;
+        } catch {
+            return DEFAULT_CAMPAIGNS;
+        }
+    });
+
     const [donationList, setDonationList] = useState(() => {
         try {
             const saved = JSON.parse(localStorage.getItem('assholihin_donor_history') || '[]');
@@ -547,6 +598,18 @@ export default function AdminDashboard() {
         image_url: ''
     });
 
+    // Program CRUD State (Pengelola Program Publik dari Web Admin)
+    const [showProgramForm, setShowProgramForm] = useState(false);
+    const [editingProgramId, setEditingProgramId] = useState(null);
+    const [programForm, setProgramForm] = useState({
+        title: '',
+        category: 'Pendidikan',
+        description: '',
+        collected: 0,
+        target: 25000000,
+        donors: 0
+    });
+
     // Keyboard shortcut (Cmd/Ctrl + K) untuk Command Palette ala Shadcn Admin
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -584,6 +647,11 @@ export default function AdminDashboard() {
         localStorage.setItem('assholihin_admin_gallery', JSON.stringify(galleryList));
         window.dispatchEvent(new Event('assholihin-data-updated'));
     }, [galleryList]);
+
+    useEffect(() => {
+        localStorage.setItem('assholihin_admin_programs', JSON.stringify(programList));
+        window.dispatchEvent(new Event('assholihin-data-updated'));
+    }, [programList]);
 
     // Auto-Polling Midtrans Transactions & Live Notifications
     const syncMidtransOrders = async (silent = true) => {
@@ -1002,6 +1070,78 @@ export default function AdminDashboard() {
         showToast('Postingan galeri telah dihapus.');
     };
 
+    // Handlers CRUD Program Kebaikan Publik
+    const handleSaveProgram = (e) => {
+        e.preventDefault();
+        const targetNominal = Number(programForm.target) || 10000000;
+        const collectedNominal = Number(programForm.collected) || 0;
+        const donorsCount = Number(programForm.donors) || 0;
+
+        if (editingProgramId) {
+            setProgramList((prev) =>
+                prev.map((item) =>
+                    item.id === editingProgramId
+                        ? {
+                              ...item,
+                              title: programForm.title,
+                              category: programForm.category,
+                              description: programForm.description,
+                              target: targetNominal,
+                              collected: collectedNominal,
+                              donors: donorsCount
+                          }
+                        : item
+                )
+            );
+            showToast('Program donasi publik berhasil diperbarui!');
+        } else {
+            const newProgram = {
+                id: `prog-${Date.now()}`,
+                title: programForm.title,
+                category: programForm.category,
+                description: programForm.description,
+                target: targetNominal,
+                collected: collectedNominal,
+                donors: donorsCount
+            };
+            setProgramList((prev) => [newProgram, ...prev]);
+            showToast('Program donasi baru berhasil ditambahkan dan tampil di halaman publik!');
+        }
+
+        setShowProgramForm(false);
+        setEditingProgramId(null);
+        setProgramForm({
+            title: '',
+            category: 'Pendidikan',
+            description: '',
+            collected: 0,
+            target: 25000000,
+            donors: 0
+        });
+    };
+
+    const handleEditProgram = (item) => {
+        setEditingProgramId(item.id);
+        setProgramForm({
+            title: item.title,
+            category: item.category || 'Pendidikan',
+            description: item.description || '',
+            collected: item.collected || 0,
+            target: item.target || 25000000,
+            donors: item.donors || 0
+        });
+        setShowProgramForm(true);
+    };
+
+    const handleDeleteProgram = (id) => {
+        if (programList.length <= 1) {
+            showToast('Minimal harus ada 1 program donasi aktif.');
+            return;
+        }
+        setProgramList((prev) => prev.filter((p) => p.id !== id));
+        showToast('Program donasi telah dihapus dari web publik.');
+    };
+
     const handleExportCSV = () => {
         const headers = ['ID Referensi,Tanggal,Jenis,Kategori/Program,Uraian/Donatur,Nominal (IDR),Status'];
         const rows = [
@@ -1181,9 +1321,17 @@ export default function AdminDashboard() {
             group: 'Manajemen Sosial & Program',
             items: [
                 {
+                    id: 'programs',
+                    label: 'Program Donasi Publik',
+                    shortcut: '4',
+                    icon: RectangleStackIcon,
+                    total: programList.length,
+                    badge: getUnreadBadge('programs', programList.length)
+                },
+                {
                     id: 'anak',
                     label: 'Anak & AI Adopsi',
-                    shortcut: '4',
+                    shortcut: '5',
                     icon: SparklesIcon,
                     total: anakList.length,
                     badge: getUnreadBadge('anak', anakList.length)
@@ -1191,7 +1339,7 @@ export default function AdminDashboard() {
                 {
                     id: 'gallery',
                     label: 'Galeri Kegiatan',
-                    shortcut: '5',
+                    shortcut: '6',
                     icon: PhotoIcon,
                     total: galleryList.length,
                     badge: getUnreadBadge('gallery', galleryList.length)
@@ -1199,7 +1347,7 @@ export default function AdminDashboard() {
                 {
                     id: 'laporan',
                     label: 'Laporan LPJ & Export',
-                    shortcut: '6',
+                    shortcut: '7',
                     icon: DocumentChartBarIcon,
                     total: 0,
                     badge: 0
@@ -1311,14 +1459,9 @@ export default function AdminDashboard() {
                             </div>
                             {!sidebarCollapsed && (
                                 <div className="truncate">
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="font-heading font-extrabold text-sm text-white tracking-wide block leading-tight truncate">
-                                            AS-SHOLIHIN
-                                        </span>
-                                        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/30">
-                                            Pro
-                                        </span>
-                                    </div>
+                                    <span className="font-heading font-extrabold text-sm text-white tracking-wide block leading-tight truncate">
+                                        AS-SHOLIHIN
+                                    </span>
                                     <span className="text-[11px] text-emerald-300/80 font-medium block truncate">
                                         Admin Management
                                     </span>
@@ -1705,6 +1848,20 @@ export default function AdminDashboard() {
                                 <div className="px-2 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                                     Aksi Singkat
                                 </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setCommandPaletteOpen(false);
+                                        setActiveMenu('programs');
+                                        setShowProgramForm(true);
+                                    }}
+                                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-primary transition-colors text-left"
+                                >
+                                    <span className="flex items-center gap-2.5">
+                                        <RectangleStackIcon className="w-4 h-4 text-emerald-600" />
+                                        <span>+ Buat Program Donasi Publik Baru</span>
+                                    </span>
+                                </button>
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -3018,6 +3175,256 @@ export default function AdminDashboard() {
                                             </div>
                                         </div>
                                     ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ==================================================================== */}
+                    {/* TAB PROGRAM: PENGELOLA PROGRAM DONASI PUBLIK */}
+                    {/* ==================================================================== */}
+                    {activeMenu === 'programs' && (
+                        <div className="space-y-6">
+                            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-card space-y-6">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+                                    <div>
+                                        <span className="text-[11px] font-bold uppercase tracking-wider text-primary block">
+                                            Pengaturan Konten Web Publik
+                                        </span>
+                                        <h2 className="text-lg sm:text-xl font-heading font-bold text-slate-900">
+                                            Kelola Program Donasi ({programList.length} Program Aktif)
+                                        </h2>
+                                        <p className="text-xs text-slate-500 mt-0.5">
+                                            Semua program yang Anda tambahkan, ubah, atau hapus di sini otomatis langsung tampil pada halaman publik website.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setEditingProgramId(null);
+                                            setProgramForm({
+                                                title: '',
+                                                category: 'Pendidikan',
+                                                description: '',
+                                                collected: 0,
+                                                target: 25000000,
+                                                donors: 0
+                                            });
+                                            setShowProgramForm(true);
+                                        }}
+                                        className="btn-primary text-xs py-2.5 px-4 self-start sm:self-auto"
+                                    >
+                                        <PlusIcon className="w-4 h-4" />
+                                        <span>+ Buat Program Donasi Baru</span>
+                                    </button>
+                                </div>
+
+                                {showProgramForm && (
+                                    <form
+                                        onSubmit={handleSaveProgram}
+                                        className="p-5 rounded-2xl border border-emerald-200 bg-emerald-50/40 space-y-4 animate-fade-up"
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <h3 className="text-sm font-bold text-slate-900">
+                                                {editingProgramId ? 'Edit Program Donasi Publik' : 'Form Tambah Program Donasi Baru'}
+                                            </h3>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setShowProgramForm(false);
+                                                    setEditingProgramId(null);
+                                                }}
+                                                className="text-xs text-slate-500 hover:text-slate-800"
+                                            >
+                                                Batal [X]
+                                            </button>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                            <div className="sm:col-span-2">
+                                                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                                    Judul Program Donasi
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    required
+                                                    value={programForm.title}
+                                                    onChange={(e) =>
+                                                        setProgramForm({ ...programForm, title: e.target.value })
+                                                    }
+                                                    placeholder="Contoh: Beasiswa Pendidikan Santri Yatim Piatu"
+                                                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs text-slate-900"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                                    Kategori Program
+                                                </label>
+                                                <select
+                                                    value={programForm.category}
+                                                    onChange={(e) =>
+                                                        setProgramForm({ ...programForm, category: e.target.value })
+                                                    }
+                                                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs text-slate-900"
+                                                >
+                                                    <option value="Pendidikan">Pendidikan</option>
+                                                    <option value="Pangan & Gizi">Pangan & Gizi</option>
+                                                    <option value="Sarana Asrama">Sarana Asrama</option>
+                                                    <option value="Sosial Yatim">Sosial Yatim</option>
+                                                    <option value="Kesehatan">Kesehatan</option>
+                                                    <option value="Kafalah Yatim">Kafalah Yatim</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                            <div>
+                                                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                                    Target Dana (Rp)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    required
+                                                    min="100000"
+                                                    value={programForm.target}
+                                                    onChange={(e) =>
+                                                        setProgramForm({ ...programForm, target: e.target.value })
+                                                    }
+                                                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs text-slate-900 font-mono"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                                    Terkumpul Sementara (Rp)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={programForm.collected}
+                                                    onChange={(e) =>
+                                                        setProgramForm({ ...programForm, collected: e.target.value })
+                                                    }
+                                                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs text-slate-900 font-mono"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                                    Jumlah Donatur Terlibat
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={programForm.donors}
+                                                    onChange={(e) =>
+                                                        setProgramForm({ ...programForm, donors: e.target.value })
+                                                    }
+                                                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs text-slate-900 font-mono"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                                Deskripsi Singkat Program (Tampil di kartu publik)
+                                            </label>
+                                            <textarea
+                                                rows="2"
+                                                required
+                                                value={programForm.description}
+                                                onChange={(e) =>
+                                                    setProgramForm({ ...programForm, description: e.target.value })
+                                                }
+                                                placeholder="Contoh: Menjamin biaya SPP, buku, dan perlengkapan santri SD hingga SMA..."
+                                                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs text-slate-900"
+                                            />
+                                        </div>
+
+                                        <div className="flex justify-end gap-2 pt-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setShowProgramForm(false);
+                                                    setEditingProgramId(null);
+                                                }}
+                                                className="px-4 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-50"
+                                            >
+                                                Batal
+                                            </button>
+                                            <button type="submit" className="btn-primary text-xs py-2 px-4">
+                                                {editingProgramId ? 'Simpan Perubahan Program' : 'Publikasikan Program'}
+                                            </button>
+                                        </div>
+                                    </form>
+                                )}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                    {programList.map((item) => {
+                                        const percentage = Math.min(
+                                            100,
+                                            Math.round(((item.collected || 0) / (item.target || 1)) * 100)
+                                        );
+                                        return (
+                                            <div
+                                                key={item.id}
+                                                className="rounded-2xl border border-slate-200 p-5 bg-white shadow-card flex flex-col justify-between hover:border-emerald-300 transition-all"
+                                            >
+                                                <div>
+                                                    <div className="flex items-center justify-between mb-3">
+                                                        <span className="px-2.5 py-1 rounded-md bg-emerald-50 text-primary border border-emerald-200 text-xs font-bold">
+                                                            {item.category}
+                                                        </span>
+                                                        <span className="text-xs font-medium text-slate-400">
+                                                            {item.donors || 0} Donatur
+                                                        </span>
+                                                    </div>
+                                                    <h3 className="text-base font-bold text-slate-900">
+                                                        {item.title}
+                                                    </h3>
+                                                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                                                        {item.description}
+                                                    </p>
+                                                </div>
+
+                                                <div className="mt-5 pt-4 border-t border-slate-100 space-y-3">
+                                                    <div>
+                                                        <div className="flex justify-between text-xs mb-1.5">
+                                                            <span className="font-bold text-primary tabular-nums">
+                                                                {formatIDR(item.collected || 0)}
+                                                            </span>
+                                                            <span className="text-slate-500 tabular-nums">
+                                                                Target {formatIDR(item.target || 0)} ({percentage}%)
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                                                            <div
+                                                                className="h-full bg-primary rounded-full"
+                                                                style={{ width: `${percentage}%` }}
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center justify-between pt-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleEditProgram(item)}
+                                                            className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                                                        >
+                                                            <PencilSquareIcon className="w-4 h-4" />
+                                                            <span>Edit Program</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleDeleteProgram(item.id)}
+                                                            className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:underline"
+                                                        >
+                                                            <TrashIcon className="w-4 h-4" />
+                                                            <span>Hapus</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>

@@ -1,11 +1,14 @@
+import { useState, useEffect } from 'react';
 import {
     AcademicCapIcon,
     HeartIcon,
     HomeModernIcon,
-    SparklesIcon
+    SparklesIcon,
+    UserGroupIcon,
+    ShieldCheckIcon
 } from '@heroicons/react/24/outline';
 
-const CAMPAIGNS = [
+const DEFAULT_CAMPAIGNS = [
     {
         id: 'pendidikan',
         category: 'Pendidikan',
@@ -13,8 +16,7 @@ const CAMPAIGNS = [
         description: 'Menjamin biaya SPP, buku & perlengkapan sekolah SD hingga SMA.',
         collected: 18450000,
         target: 25000000,
-        donors: 142,
-        icon: AcademicCapIcon
+        donors: 142
     },
     {
         id: 'pangan',
@@ -23,8 +25,7 @@ const CAMPAIGNS = [
         description: 'Kebutuhan makan sehat 3x sehari bagi seluruh anak asuh mukim.',
         collected: 12800000,
         target: 15000000,
-        donors: 98,
-        icon: HeartIcon
+        donors: 98
     },
     {
         id: 'wakaf',
@@ -33,8 +34,7 @@ const CAMPAIGNS = [
         description: 'Perbaikan fasilitas tidur, lemari belajar, dan sanitasi asrama.',
         collected: 34200000,
         target: 50000000,
-        donors: 215,
-        icon: HomeModernIcon
+        donors: 215
     },
     {
         id: 'santunan',
@@ -43,12 +43,55 @@ const CAMPAIGNS = [
         description: 'Paket sembako & uang saku pendidikan yatim sekitar Candimulyo.',
         collected: 9250000,
         target: 12000000,
-        donors: 76,
-        icon: SparklesIcon
+        donors: 76
     }
 ];
 
+function getCategoryIcon(cat = '') {
+    const lower = cat.toLowerCase();
+    if (lower.includes('pendidikan') || lower.includes('sekolah') || lower.includes('beasiswa')) return AcademicCapIcon;
+    if (lower.includes('pangan') || lower.includes('gizi') || lower.includes('makan')) return HeartIcon;
+    if (lower.includes('sarana') || lower.includes('asrama') || lower.includes('wakaf') || lower.includes('kamar')) return HomeModernIcon;
+    if (lower.includes('sosial') || lower.includes('santunan') || lower.includes('kafalah')) return SparklesIcon;
+    return UserGroupIcon;
+}
+
 export default function Programs({ onSelectProgram }) {
+    const [programs, setPrograms] = useState(() => {
+        try {
+            const raw = localStorage.getItem('assholihin_admin_programs');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            }
+            return DEFAULT_CAMPAIGNS;
+        } catch {
+            return DEFAULT_CAMPAIGNS;
+        }
+    });
+
+    useEffect(() => {
+        const syncPrograms = () => {
+            try {
+                const raw = localStorage.getItem('assholihin_admin_programs');
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        setPrograms(parsed);
+                    }
+                }
+            } catch {}
+        };
+
+        syncPrograms();
+        window.addEventListener('assholihin-data-updated', syncPrograms);
+        window.addEventListener('storage', syncPrograms);
+        return () => {
+            window.removeEventListener('assholihin-data-updated', syncPrograms);
+            window.removeEventListener('storage', syncPrograms);
+        };
+    }, []);
+
     const formatIDR = (val) => {
         return new Intl.NumberFormat('id-ID', {
             style: 'currency',
@@ -76,9 +119,9 @@ export default function Programs({ onSelectProgram }) {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    {CAMPAIGNS.map((item) => {
-                        const Icon = item.icon;
-                        const percentage = Math.min(100, Math.round((item.collected / item.target) * 100));
+                    {programs.map((item) => {
+                        const Icon = getCategoryIcon(item.category);
+                        const percentage = Math.min(100, Math.round(((item.collected || 0) / (item.target || 1)) * 100));
 
                         return (
                             <div
@@ -92,7 +135,7 @@ export default function Programs({ onSelectProgram }) {
                                             <span>{item.category}</span>
                                         </span>
                                         <span className="text-xs font-medium text-slate-400">
-                                            {item.donors} Donatur
+                                            {item.donors || 0} Donatur
                                         </span>
                                     </div>
 
@@ -104,10 +147,10 @@ export default function Programs({ onSelectProgram }) {
                                     <div>
                                         <div className="flex justify-between text-xs mb-1.5">
                                             <span className="font-bold text-primary tabular-nums">
-                                                {formatIDR(item.collected)}
+                                                {formatIDR(item.collected || 0)}
                                             </span>
                                             <span className="text-slate-500 tabular-nums">
-                                                Target {formatIDR(item.target)} ({percentage}%)
+                                                Target {formatIDR(item.target || 0)} ({percentage}%)
                                             </span>
                                         </div>
                                         <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
