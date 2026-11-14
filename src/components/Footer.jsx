@@ -107,35 +107,23 @@ export default function Footer() {
                         </h4>
                         <ul className="space-y-2 text-xs sm:text-sm text-slate-400">
                             <li>
-                                <button
-                                    type="button"
-                                    onClick={() => setActivePolicy('terms')}
-                                    className="hover:text-white transition-colors text-left"
-                                >
-                                    Syarat & Ketentuan Donasi
-                                </button>
+                                <Link to="/kebijakan" className="hover:text-white transition-colors">
+                                    Syarat &amp; Ketentuan Donasi
+                                </Link>
                             </li>
                             <li>
-                                <button
-                                    type="button"
-                                    onClick={() => setActivePolicy('privacy')}
-                                    className="hover:text-white transition-colors text-left"
-                                >
+                                <Link to="/kebijakan" className="hover:text-white transition-colors">
                                     Kebijakan Privasi Donatur
-                                </button>
+                                </Link>
                             </li>
                             <li>
-                                <button
-                                    type="button"
-                                    onClick={() => setActivePolicy('refund')}
-                                    className="hover:text-white transition-colors text-left"
-                                >
+                                <Link to="/kebijakan" className="hover:text-white transition-colors">
                                     Kebijakan Pengembalian Dana (Refund)
-                                </button>
+                                </Link>
                             </li>
                             <li>
                                 <a href="#transparency" className="hover:text-white transition-colors">
-                                    Laporan Keuangan PSAK 109
+                                    Laporan Keuangan Terbuka
                                 </a>
                             </li>
                         </ul>
@@ -166,7 +154,7 @@ export default function Footer() {
                                 onClick={() => setActivePolicy(null)}
                                 className="text-xs text-slate-400 hover:text-white font-semibold"
                             >
-                                Tutup [X]
+                                Tutup
                             </button>
                         </div>
                         <p className="whitespace-pre-line text-slate-300 leading-relaxed">
@@ -181,7 +169,7 @@ export default function Footer() {
                         &copy; {new Date().getFullYear()} Yayasan Assholihin Candimulyo Jombang — Panti Asuhan As-Sholihin. Hak Cipta Dilindungi.
                     </p>
                     <p>
-                        Standar Transparansi Keuangan Nirlaba PSAK 109
+                        Standar Transparansi Keuangan Nirlaba
                     </p>
                 </div>
             </div>

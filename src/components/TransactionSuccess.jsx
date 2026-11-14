@@ -72,7 +72,7 @@ export default function TransactionSuccess() {
                             program: merged.program || 'Santunan & Pendidikan Anak Yatim',
                             amount: Number(merged.amount || 50000),
                             method: (merged.payment_channel || 'Midtrans Snap').replace(/_/g, ' '),
-                            status: ['success', 'paid'].includes(merged.status) ? 'Berhasil (Settlement)' : 'Menunggu Pembayaran'
+                            status: ['success', 'paid'].includes(merged.status) ? 'Berhasil' : 'Menunggu Pembayaran'
                         };
                         const idx = existingHistory.findIndex(h => h.id === merged.order_id);
                         if (idx >= 0) {

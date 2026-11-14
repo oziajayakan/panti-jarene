@@ -55,7 +55,7 @@ export default function AboutSection() {
                         </span>
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-mint text-primary border border-emerald-200">
                             <CheckBadgeIcon className="w-4 h-4" />
-                            <span>Audit Kas PSAK 109</span>
+                            <span>Audit Kas Terbuka</span>
                         </span>
                     </div>
                 </div>

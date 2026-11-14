@@ -83,9 +83,6 @@ export default function RecentDonations() {
                         Pembaruan otomatis dari transaksi QRIS & Virtual Account
                     </p>
                 </div>
-                <span className="text-[11px] font-semibold text-slate-500">
-                    Real-time
-                </span>
             </div>
 
             {/* Clean Scrollable List */}
@@ -119,9 +116,8 @@ export default function RecentDonations() {
             </div>
 
             {/* Footer Note */}
-            <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
+            <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-500">
                 <span>Privasi donatur terjaga (Opsi Hamba Allah)</span>
-                <span className="font-semibold text-slate-700">PSAK 109 Compliant</span>
             </div>
         </div>
     );

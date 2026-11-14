@@ -52,7 +52,7 @@ export default function Navbar({ onDonateClick }) {
         <header className="sticky top-0 w-full z-50">
             <nav
                 className={clsx(
-                    'w-full transition-all duration-200 border-b',
+                    'w-full border-b',
                     scrolled
                         ? 'bg-white/95 backdrop-blur-md border-slate-200/80 shadow-xs py-2.5'
                         : 'bg-white border-slate-100 py-3'

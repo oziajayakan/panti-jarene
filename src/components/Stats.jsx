@@ -183,7 +183,7 @@ export default function Stats() {
                     <div className="max-w-2xl">
                         <div className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-primary mb-1">
                             <DocumentCheckIcon className="w-4 h-4" />
-                            <span>Laporan Keuangan Terbuka (PSAK 109)</span>
+                            <span>Laporan Keuangan Terbuka</span>
                         </div>
                         <h2 className="text-2xl sm:text-3xl font-heading font-bold text-slate-900">
                             Portal Transparansi Dana & Realisasi Kas
@@ -237,7 +237,7 @@ export default function Stats() {
                     {/* Chart Panel */}
                     <div className="lg:col-span-7 card-surface p-6 flex flex-col justify-between">
                         <div>
-                            <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+                            <div className="mb-6">
                                 <div>
                                     <h3 className="text-base font-bold text-slate-900">
                                         Grafik Arus Kas Masuk vs Pengeluaran Operasional
@@ -246,9 +246,6 @@ export default function Stats() {
                                         Rekapitulasi bulanan terintegrasi database kas internal panti
                                     </p>
                                 </div>
-                                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    Audit Real-time Aktif
-                                </span>
                             </div>
 
                             <div className="h-[300px] sm:h-[340px] w-full">

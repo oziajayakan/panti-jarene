@@ -132,7 +132,7 @@ export default function Hero({ onDonateClick }) {
                                     </div>
                                 </div>
                                 <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold">
-                                    PSAK 109
+                                    Terbuka
                                 </span>
                             </div>
                         </div>

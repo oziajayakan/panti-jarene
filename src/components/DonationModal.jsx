@@ -157,7 +157,7 @@ export default function DonationModal({ isOpen, setIsOpen, initialData }) {
                                         ? {
                                             ...item,
                                             method: (result.payment_type || 'Midtrans Snap').replace(/_/g, ' ').toUpperCase(),
-                                            status: 'Berhasil (Settlement)'
+                                            status: 'Berhasil'
                                         }
                                         : item
                                 );

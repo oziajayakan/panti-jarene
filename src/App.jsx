@@ -5,12 +5,16 @@ import PaymentPage from './components/PaymentPage';
 import TransactionSuccess from './components/TransactionSuccess';
 import PendingPage from './components/PendingPage';
 import AdminDashboard from './components/AdminDashboard';
+import LegalPolicyPage from './components/LegalPolicyPage';
+import AdoptionApplicationPage from './components/AdoptionApplicationPage';
 
 function App() {
     return (
         <Router basename="/">
             <Routes>
                 <Route path="/" element={<LandingPage />} />
+                <Route path="/kebijakan" element={<LegalPolicyPage />} />
+                <Route path="/pengajuan-adopsi" element={<AdoptionApplicationPage />} />
                 <Route path="/portal-donatur" element={<DonorPortal />} />
                 <Route path="/admin" element={<AdminDashboard />} />
                 <Route path="/admin/login" element={<AdminDashboard />} />

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Navbar from './Navbar';
 import Footer from './Footer';
 import DonationModal from './DonationModal';
@@ -25,7 +26,7 @@ const SAMPLE_HISTORY = [
         program: 'Beasiswa SPP & Pendidikan Santri Yatim',
         amount: 250000,
         method: 'QRIS Nasional',
-        status: 'Berhasil (Settlement)'
+        status: 'Berhasil'
     },
     {
         id: 'ORD-20261015-044',
@@ -33,7 +34,7 @@ const SAMPLE_HISTORY = [
         program: 'Pemenuhan Pangan & Gizi Asrama',
         amount: 100000,
         method: 'BSI Virtual Account',
-        status: 'Berhasil (Settlement)'
+        status: 'Berhasil'
     }
 ];
 
@@ -76,6 +77,7 @@ function getOrderExpiryMs(item) {
 }
 
 export default function DonorPortal() {
+    const navigate = useNavigate();
     const [authUser, setAuthUser] = useState(() => {
         try {
             const raw = localStorage.getItem('assholihin_auth_session');
@@ -206,7 +208,7 @@ export default function DonorPortal() {
                                     created_at: createdAt,
                                     expires_at: expiresAt,
                                     status: ['paid', 'success'].includes(meta.status)
-                                        ? 'Berhasil (Settlement)'
+                                        ? 'Berhasil'
                                         : isExpiredNow
                                         ? 'Gagal / Kedaluwarsa (Auto-Cancel)'
                                         : 'Menunggu Pembayaran'
@@ -245,7 +247,7 @@ export default function DonorPortal() {
                                     created_at: createdAt,
                                     expires_at: expiresAt,
                                     status: ['paid', 'success'].includes(so.status)
-                                        ? 'Berhasil (Settlement)'
+                                        ? 'Berhasil'
                                         : ['expired', 'failed', 'cancelled'].includes(so.status) || isExpiredNow
                                         ? 'Gagal / Kedaluwarsa (Auto-Cancel)'
                                         : 'Menunggu Pembayaran'
@@ -287,7 +289,7 @@ export default function DonorPortal() {
                                         created_at: item.created_at || d.created_at,
                                         expires_at: item.expires_at || d.expires_at,
                                         status: isPaidRemote
-                                            ? 'Berhasil (Settlement)'
+                                            ? 'Berhasil'
                                             : isFailedRemote || isExpiredLocal
                                             ? 'Gagal / Kedaluwarsa (Auto-Cancel)'
                                             : 'Menunggu Pembayaran'
@@ -476,8 +478,9 @@ export default function DonorPortal() {
         }
 
         localStorage.setItem('assholihin_auth_session', JSON.stringify(found));
-        setAuthUser(found);
+        sessionStorage.setItem('assholihin_show_intro', '1');
         window.dispatchEvent(new Event('assholihin-auth-change'));
+        navigate('/', { replace: true });
     };
 
     const handleLogout = () => {
@@ -1263,7 +1266,7 @@ export default function DonorPortal() {
                                                                                     }`}
                                                                                 />
                                                                                 {isPaid
-                                                                                    ? 'Berhasil (Settlement)'
+                                                                                    ? 'Berhasil'
                                                                                     : isFailed
                                                                                     ? 'Gagal / Dibatalkan'
                                                                                     : 'Menunggu Pembayaran'}

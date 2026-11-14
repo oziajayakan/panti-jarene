@@ -95,7 +95,7 @@ function evaluateChildAdoptionAI(child) {
     if (kategori === 'Yatim Piatu' && wali.includes('Tanpa Wali')) {
         score += 30;
         findings.push(
-            'Status Yatim Piatu tanpa wali kerabat aktif: Memenuhi syarat prioritas perlindungan keluarga pengganti (COTA).'
+            'Status Yatim Piatu tanpa wali kerabat aktif: Memenuhi syarat prioritas perlindungan keluarga pengganti.'
         );
     } else if (kategori === 'Yatim Piatu') {
         score += 15;
@@ -176,7 +176,7 @@ function evaluateChildAdoptionAI(child) {
         verdict = 'LAYAK DIADOPSI (REKOMENDASI COTA)';
         badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
         recommendation =
-            'Memenuhi syarat kelayakan PP No. 54/2007. Dapat dilanjutkan ke tahap verifikasi Calon Orang Tua Angkat (COTA), Home Visit Pekerja Sosial, dan Sidang Tim PIPA Dinsos.';
+            'Memenuhi syarat kelayakan PP No. 54/2007. Dapat dilanjutkan ke tahap verifikasi Calon Orang Tua Angkat, Home Visit Pekerja Sosial, dan Sidang Tim PIPA Dinsos.';
     } else if (finalScore >= 45) {
         verdict = 'DIALIHKAN KE ORANG TUA ASUH (FOSTER)';
         badgeColor = 'bg-amber-50 text-amber-800 border-amber-200';
@@ -440,7 +440,7 @@ const SAMPLE_DONATIONS = [
         program: 'Beasiswa SPP & Pendidikan Santri Yatim',
         amount: 250000,
         method: 'QRIS Nasional',
-        status: 'Berhasil (Settlement)'
+        status: 'Berhasil'
     },
     {
         id: 'ORD-20261015-044',
@@ -450,7 +450,7 @@ const SAMPLE_DONATIONS = [
         program: 'Pemenuhan Pangan & Gizi Asrama',
         amount: 100000,
         method: 'BSI Virtual Account',
-        status: 'Berhasil (Settlement)'
+        status: 'Berhasil'
     }
 ];
 
@@ -508,6 +508,36 @@ export default function AdminDashboard() {
     });
 
     const [selectedAnakForAI, setSelectedAnakForAI] = useState(null);
+    const [selectedCotaForAI, setSelectedCotaForAI] = useState(null);
+    const [showCotaForm, setShowCotaForm] = useState(false);
+    const [editingCotaId, setEditingCotaId] = useState(null);
+    const [cotaForm, setCotaForm] = useState({
+        namaLengkap: '',
+        usia: 34,
+        whatsapp: '',
+        statusNikah: 'Menikah (>= 5 Tahun)',
+        pekerjaan: 'Pegawai Swasta / BUMN',
+        penghasilan: 'Rp 7.500.000 - Rp 15.000.000 / bulan',
+        tempatTinggal: 'Rumah Milik Sendiri',
+        alasanAdopsi: 'Ingin memberikan kasih sayang & pendidikan layak',
+        kesiapanDokumen: 'Lengkap (KTP, KK, Akta Nikah, SKCK, Ket. Sehat)'
+    });
+    const [adminWaNumber, setAdminWaNumber] = useState(() => {
+        try {
+            return localStorage.getItem('assholihin_admin_wa') || '6281234567890';
+        } catch {
+            return '6281234567890';
+        }
+    });
+    const [mysqlConnected, setMysqlConnected] = useState(false);
+    const [cotaApplications, setCotaApplications] = useState(() => {
+        try {
+            const raw = localStorage.getItem('assholihin_adoption_applications');
+            return raw ? JSON.parse(raw) : [];
+        } catch {
+            return [];
+        }
+    });
     const [geminiAnalysisMap, setGeminiAnalysisMap] = useState(() => {
         try {
             const raw = localStorage.getItem('assholihin_gemini_adoption_cache');
@@ -598,7 +628,7 @@ export default function AdminDashboard() {
         program: 'Santunan & Pendidikan Anak Yatim',
         amount: 100000,
         method: 'Tunai / Kas Sekretariat',
-        status: 'Berhasil (Settlement)'
+        status: 'Berhasil'
     });
 
     // Gallery CRUD State
@@ -754,9 +784,166 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
         }
     };
 
+    // Sinkronisasi otomatis dengan MySQL XAMPP (via server.js di port 3001)
+    useEffect(() => {
+        let active = true;
+        fetch('http://localhost:3001/api/anak')
+            .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+            .then((rows) => {
+                if (active && Array.isArray(rows) && rows.length > 0) {
+                    setAnakList(rows);
+                    setMysqlConnected(true);
+                }
+            })
+            .catch(() => {
+                if (active) setMysqlConnected(false);
+            });
+        return () => {
+            active = false;
+        };
+    }, []);
+
     const showToast = (msg) => {
         setToastMessage(msg);
         setTimeout(() => setToastMessage(''), 4000);
+    };
+
+    const evaluateCotaCompatibility = (app) => {
+        let score = 50;
+        const age = Number(app.usia || 30);
+        if (age >= 30 && age <= 55) score += 20;
+        else score -= 20;
+
+        if ((app.statusNikah || '').includes('>= 5')) score += 15;
+        else if ((app.statusNikah || '').includes('Tunggal')) score -= 15;
+
+        if ((app.penghasilan || '').includes('7.500') || (app.penghasilan || '').includes('> Rp 15')) score += 15;
+        else if ((app.penghasilan || '').includes('< Rp 3.500')) score -= 15;
+
+        if ((app.kesiapanDokumen || '').includes('Lengkap')) score += 10;
+        else if ((app.kesiapanDokumen || '').includes('Belum')) score -= 20;
+
+        return Math.max(10, Math.min(98, score));
+    };
+
+    const formatWaNumber = (raw) => {
+        const digits = String(raw || '').replace(/[^0-9]/g, '');
+        if (!digits) return '';
+        return digits.startsWith('0') ? `62${digits.slice(1)}` : digits;
+    };
+
+    const getCotaAnalysisReasons = (app) => {
+        const age = Number(app.usia || 30);
+        return [
+            {
+                title: 'Usia & Kematangan Pemohon',
+                status: age >= 30 && age <= 55 ? 'Memenuhi' : 'Perlu Tinjauan',
+                desc:
+                    age >= 30 && age <= 55
+                        ? `Usia ${age} tahun berada pada rentang ideal (30–55 tahun) sesuai PP No. 54/2007.`
+                        : `Usia ${age} tahun berada di luar rentang ideal standar (30–55 tahun).`
+            },
+            {
+                title: 'Stabilitas Pernikahan',
+                status: (app.statusNikah || '').includes('>= 5') ? 'Memenuhi' : 'Catatan',
+                desc: `Status: ${app.statusNikah}. Menentukan stabilitas pengasuhan jangka panjang.`
+            },
+            {
+                title: 'Kemampuan Ekonomi & Hunian',
+                status: (app.penghasilan || '').includes('< Rp 3.500') ? 'Perlu Tinjauan' : 'Memenuhi',
+                desc: `${app.pekerjaanFinal || app.pekerjaan} (${app.penghasilan}) • Hunian: ${app.tempatTinggalFinal || app.tempatTinggal}.`
+            },
+            {
+                title: 'Kesiapan Dokumen Legal',
+                status: (app.kesiapanDokumen || '').includes('Lengkap') ? 'Lengkap' : 'Belum Lengkap',
+                desc: app.kesiapanDokumen || 'Menunggu verifikasi berkas fisik.'
+            }
+        ];
+    };
+
+    const handleCotaDecision = (appId, decision) => {
+        const target = cotaApplications.find((item) => item.id === appId);
+        const updated = cotaApplications.map((item) =>
+            item.id === appId
+                ? { ...item, status: decision, decidedAt: new Date().toISOString() }
+                : item
+        );
+        setCotaApplications(updated);
+        try {
+            localStorage.setItem('assholihin_adoption_applications', JSON.stringify(updated));
+        } catch {
+            // ignore
+        }
+
+        if (decision === 'DITERIMA' && target?.whatsapp) {
+            const wa = formatWaNumber(target.whatsapp);
+            const msg = encodeURIComponent(
+                `Assalamu'alaikum Bapak/Ibu ${target.namaLengkap}, pengajuan adopsi Anda (${target.id}) di Panti Asuhan As-Sholihin Candimulyo telah *DITERIMA* untuk tahap verifikasi lanjutan & Home Visit. Terima kasih.`
+            );
+            window.open(`https://wa.me/${wa}?text=${msg}`, '_blank', 'noopener,noreferrer');
+        }
+
+        showToast(
+            decision === 'DITERIMA'
+                ? 'Pengajuan adopsi COTA DITERIMA & notifikasi WA disiapkan.'
+                : 'Pengajuan adopsi COTA DITOLAK.'
+        );
+    };
+
+    const handleSaveCota = (e) => {
+        e.preventDefault();
+        let updated;
+        if (editingCotaId) {
+            updated = cotaApplications.map((item) =>
+                item.id === editingCotaId ? { ...item, ...cotaForm } : item
+            );
+            showToast('Data pengajuan COTA diperbarui.');
+        } else {
+            const newApp = {
+                id: `COTA-${Date.now()}`,
+                ...cotaForm,
+                status: 'MENUNGGU_VERIFIKASI',
+                createdAt: new Date().toISOString()
+            };
+            updated = [newApp, ...cotaApplications];
+            showToast('Pengajuan COTA baru ditambahkan.');
+        }
+        setCotaApplications(updated);
+        try {
+            localStorage.setItem('assholihin_adoption_applications', JSON.stringify(updated));
+        } catch {
+            // ignore
+        }
+        setShowCotaForm(false);
+        setEditingCotaId(null);
+    };
+
+    const handleEditCota = (app) => {
+        setEditingCotaId(app.id);
+        setCotaForm({
+            namaLengkap: app.namaLengkap || '',
+            usia: app.usia || 34,
+            whatsapp: app.whatsapp || '',
+            statusNikah: app.statusNikah || 'Menikah (>= 5 Tahun)',
+            pekerjaan: app.pekerjaanFinal || app.pekerjaan || '',
+            penghasilan: app.penghasilan || 'Rp 7.500.000 - Rp 15.000.000 / bulan',
+            tempatTinggal: app.tempatTinggalFinal || app.tempatTinggal || 'Rumah Milik Sendiri',
+            alasanAdopsi: app.alasanAdopsiFinal || app.alasanAdopsi || '',
+            kesiapanDokumen: app.kesiapanDokumen || 'Lengkap (KTP, KK, Akta Nikah, SKCK, Ket. Sehat)'
+        });
+        setShowCotaForm(true);
+    };
+
+    const handleDeleteCota = (appId) => {
+        const updated = cotaApplications.filter((item) => item.id !== appId);
+        setCotaApplications(updated);
+        if (selectedCotaForAI?.id === appId) setSelectedCotaForAI(null);
+        try {
+            localStorage.setItem('assholihin_adoption_applications', JSON.stringify(updated));
+        } catch {
+            // ignore
+        }
+        showToast('Data pengajuan COTA dihapus.');
     };
 
     // Persist changes
@@ -808,7 +995,7 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
                                 amount: Number(meta.amount || 50000),
                                 method: (meta.payment_channel || 'MIDTRANS SNAP').replace(/_/g, ' '),
                                 status: ['paid', 'success'].includes(meta.status)
-                                    ? 'Berhasil (Settlement)'
+                                    ? 'Berhasil'
                                     : 'Menunggu Pembayaran'
                             });
                         }
@@ -836,7 +1023,7 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
                                 amount: Number(so.amount || 50000),
                                 method: (so.payment_channel || 'MIDTRANS SNAP').replace(/_/g, ' '),
                                 status: ['paid', 'success'].includes(so.status)
-                                    ? 'Berhasil (Settlement)'
+                                    ? 'Berhasil'
                                     : ['expired', 'failed', 'cancelled'].includes(so.status)
                                     ? 'Dibatalkan / Kedaluwarsa'
                                     : 'Menunggu Pembayaran'
@@ -884,12 +1071,12 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
                             if (statusJson?.success && statusJson?.data) {
                                 const d = statusJson.data;
                                 const newStatus = ['paid', 'success'].includes(d.status)
-                                    ? 'Berhasil (Settlement)'
+                                    ? 'Berhasil'
                                     : ['expired', 'failed', 'cancelled'].includes(d.status)
                                     ? 'Dibatalkan / Kedaluwarsa'
                                     : 'Menunggu Pembayaran';
 
-                                if (item.status !== 'Berhasil (Settlement)' && newStatus === 'Berhasil (Settlement)') {
+                                if (item.status !== 'Berhasil' && newStatus === 'Berhasil') {
                                     showToast(
                                         `✅ Donasi ${item.donorName || d.customer_name || 'Donatur'} (${item.id}) telah LUNAS!`
                                     );
@@ -1101,7 +1288,7 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
             program: 'Santunan & Pendidikan Anak Yatim',
             amount: 100000,
             method: 'Tunai / Kas Sekretariat',
-            status: 'Berhasil (Settlement)'
+            status: 'Berhasil'
         });
         window.dispatchEvent(new Event('assholihin-data-updated'));
         showToast('Donasi manual berhasil dicatat dan E-Kwitansi diterbitkan!');
@@ -1110,12 +1297,12 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
     const handleApproveDonationStatus = (orderId) => {
         const saved = JSON.parse(localStorage.getItem('assholihin_donor_history') || '[]');
         const updated = saved.map((item) =>
-            item.id === orderId ? { ...item, status: 'Berhasil (Settlement)' } : item
+            item.id === orderId ? { ...item, status: 'Berhasil' } : item
         );
         localStorage.setItem('assholihin_donor_history', JSON.stringify(updated));
         setDonationList([...updated, ...SAMPLE_DONATIONS]);
         window.dispatchEvent(new Event('assholihin-data-updated'));
-        showToast(`Order ${orderId} diverifikasi menjadi Berhasil (Settlement).`);
+        showToast(`Order ${orderId} diverifikasi menjadi Berhasil.`);
     };
 
     // Handlers Gallery CRUD
@@ -1437,7 +1624,7 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
                 },
                 {
                     id: 'kas',
-                    label: 'Buku Kas PSAK 109',
+                    label: 'Buku Kas Umum',
                     shortcut: '3',
                     icon: ArrowsRightLeftIcon,
                     total: kasList.length,
@@ -1458,11 +1645,19 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
                 },
                 {
                     id: 'anak',
-                    label: 'Anak & AI Adopsi',
+                    label: 'Data Anak Asuh',
                     shortcut: '5',
-                    icon: SparklesIcon,
+                    icon: UserGroupIcon,
                     total: anakList.length,
                     badge: getUnreadBadge('anak', anakList.length)
+                },
+                {
+                    id: 'pengajuan_adopsi',
+                    label: 'Pengajuan Adopsi',
+                    shortcut: '6',
+                    icon: SparklesIcon,
+                    total: cotaApplications.filter((c) => c.status === 'MENUNGGU_VERIFIKASI').length,
+                    badge: cotaApplications.filter((c) => c.status === 'MENUNGGU_VERIFIKASI').length
                 },
                 {
                     id: 'gallery',
@@ -1798,7 +1993,7 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
                                     <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-elevated z-50 overflow-hidden animate-fade-up">
                                         <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                                             <span className="text-xs font-bold text-slate-900">
-                                                Notifikasi Donatur & Midtrans ({notifications.length})
+                                                Notifikasi ({notifications.length})
                                             </span>
                                             <button
                                                 type="button"
@@ -2001,7 +2196,7 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
                                 >
                                     <span className="flex items-center gap-2.5">
                                         <PlusIcon className="w-4 h-4 text-emerald-600" />
-                                        <span>+ Catat Kas PSAK 109 Baru</span>
+                                        <span>+ Catat Kas Baru</span>
                                     </span>
                                 </button>
                                 <button
@@ -2495,7 +2690,7 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                                    Pos Akad / Kategori PSAK 109
+                                                    Pos Akad / Kategori Kas
                                                 </label>
                                                 <select
                                                     value={kasForm.kategori}
@@ -3184,6 +3379,321 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
                     )}
 
                     {/* ==================================================================== */}
+                    {/* TAB: PENGAJUAN ADOPSI MASUK & ANALISIS AI */}
+                    {/* ==================================================================== */}
+                    {activeMenu === 'pengajuan_adopsi' && (
+                        <div className="space-y-6">
+                            {/* Pengaturan Nomor WhatsApp Admin */}
+                            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-900">
+                                        Notifikasi WhatsApp Admin &amp; Pemohon
+                                    </h3>
+                                    <p className="text-xs text-slate-500">
+                                        Atur nomor WA Admin penerima notifikasi pengajuan baru. Jika pengajuan diterima, notifikasi otomatis dikirim ke WA pemohon.
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <input
+                                        type="text"
+                                        value={adminWaNumber}
+                                        onChange={(e) => {
+                                            setAdminWaNumber(e.target.value);
+                                            try {
+                                                localStorage.setItem('assholihin_admin_wa', e.target.value);
+                                            } catch {
+                                                // ignore
+                                            }
+                                        }}
+                                        placeholder="6281234567890"
+                                        className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-mono w-40"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => showToast('Nomor WhatsApp Admin disimpan.')}
+                                        className="btn-primary text-xs py-1.5 px-3"
+                                    >
+                                        Simpan WA
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Panel Detail Analisis AI COTA (Redesigned) */}
+                            {selectedCotaForAI && (() => {
+                                const pct = evaluateCotaCompatibility(selectedCotaForAI);
+                                const reasons = getCotaAnalysisReasons(selectedCotaForAI);
+                                return (
+                                    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-card overflow-hidden">
+                                        <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                                                    <SparklesIcon className="w-5 h-5" />
+                                                </div>
+                                                <div>
+                                                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 block">
+                                                        Hasil Analisis AI Kelayakan COTA
+                                                    </span>
+                                                    <h3 className="text-base font-bold text-slate-900">
+                                                        {selectedCotaForAI.namaLengkap} ({selectedCotaForAI.usia} Thn)
+                                                    </h3>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setSelectedCotaForAI(null)}
+                                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                                            >
+                                                <XMarkIcon className="w-4 h-4" />
+                                            </button>
+                                        </div>
+
+                                        <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                                            <div className="lg:col-span-4 p-5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-4">
+                                                <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+                                                    <span>Tingkat Kecocokan</span>
+                                                    <span className="text-lg font-mono font-bold text-slate-900">{pct}%</span>
+                                                </div>
+                                                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                                                    <div
+                                                        className={`h-full rounded-full ${
+                                                            pct >= 75 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-rose-500'
+                                                        }`}
+                                                        style={{ width: `${pct}%` }}
+                                                    />
+                                                </div>
+                                                <p className="text-xs text-slate-600 leading-relaxed">
+                                                    Alasan Pengajuan: <strong>{selectedCotaForAI.alasanAdopsiFinal || selectedCotaForAI.alasanAdopsi}</strong>
+                                                </p>
+                                                {selectedCotaForAI.status === 'MENUNGGU_VERIFIKASI' && (
+                                                    <div className="flex gap-2 pt-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                handleCotaDecision(selectedCotaForAI.id, 'DITERIMA');
+                                                                setSelectedCotaForAI(null);
+                                                            }}
+                                                            className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+                                                        >
+                                                            Terima &amp; Kirim WA
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                handleCotaDecision(selectedCotaForAI.id, 'DITOLAK');
+                                                                setSelectedCotaForAI(null);
+                                                            }}
+                                                            className="flex-1 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold"
+                                                        >
+                                                            Tolak
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                {reasons.map((r, idx) => (
+                                                    <div key={idx} className="p-3.5 rounded-xl bg-white border border-slate-200/80 shadow-2xs space-y-1">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="text-xs font-bold text-slate-800">{r.title}</span>
+                                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                                {r.status}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-xs text-slate-600 leading-relaxed">{r.desc}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Tabel Daftar Pengajuan Masuk */}
+                            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-card space-y-4">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                                    <div>
+                                        <h2 className="text-lg font-bold text-slate-900">
+                                            Daftar Pengajuan Adopsi Masuk
+                                        </h2>
+                                        <p className="text-xs text-slate-500">
+                                            Klik <strong>Analisis AI</strong> untuk melihat alasan kelayakan sebelum memutuskan Terima atau Tolak.
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-700">
+                                            {cotaApplications.length} Pengajuan
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {showCotaForm && (
+                                    <form onSubmit={handleSaveCota} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                                        <h3 className="text-sm font-bold text-slate-900">
+                                            {editingCotaId ? 'Edit Data Pengajuan COTA' : 'Tambah Pengajuan COTA Manual'}
+                                        </h3>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <input
+                                                type="text"
+                                                required
+                                                value={cotaForm.namaLengkap}
+                                                onChange={(e) => setCotaForm({ ...cotaForm, namaLengkap: e.target.value })}
+                                                placeholder="Nama Lengkap Pemohon"
+                                                className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                                            />
+                                            <input
+                                                type="number"
+                                                min="21"
+                                                max="65"
+                                                required
+                                                value={cotaForm.usia}
+                                                onChange={(e) => setCotaForm({ ...cotaForm, usia: e.target.value })}
+                                                placeholder="Usia"
+                                                className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                                            />
+                                            <input
+                                                type="tel"
+                                                required
+                                                value={cotaForm.whatsapp}
+                                                onChange={(e) => setCotaForm({ ...cotaForm, whatsapp: e.target.value })}
+                                                placeholder="No. WhatsApp (0812...)"
+                                                className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                                            />
+                                            <input
+                                                type="text"
+                                                required
+                                                value={cotaForm.pekerjaan}
+                                                onChange={(e) => setCotaForm({ ...cotaForm, pekerjaan: e.target.value })}
+                                                placeholder="Pekerjaan"
+                                                className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                                            />
+                                            <select
+                                                value={cotaForm.penghasilan}
+                                                onChange={(e) => setCotaForm({ ...cotaForm, penghasilan: e.target.value })}
+                                                className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                                            >
+                                                <option value="< Rp 3.500.000 / bulan">&lt; Rp 3.500.000 / bulan</option>
+                                                <option value="Rp 3.500.000 - Rp 7.500.000 / bulan">Rp 3.500.000 - Rp 7.500.000 / bulan</option>
+                                                <option value="Rp 7.500.000 - Rp 15.000.000 / bulan">Rp 7.500.000 - Rp 15.000.000 / bulan</option>
+                                                <option value="> Rp 15.000.000 / bulan">&gt; Rp 15.000.000 / bulan</option>
+                                            </select>
+                                            <input
+                                                type="text"
+                                                required
+                                                value={cotaForm.alasanAdopsi}
+                                                onChange={(e) => setCotaForm({ ...cotaForm, alasanAdopsi: e.target.value })}
+                                                placeholder="Alasan Pengajuan Adopsi"
+                                                className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                                            />
+                                        </div>
+                                        <div className="flex justify-end gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowCotaForm(false)}
+                                                className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-600"
+                                            >
+                                                Batal
+                                            </button>
+                                            <button type="submit" className="btn-primary text-xs py-1.5 px-4">
+                                                Simpan Data COTA
+                                            </button>
+                                        </div>
+                                    </form>
+                                )}
+
+                                {cotaApplications.length === 0 ? (
+                                    <p className="text-xs text-slate-500 py-8 text-center">
+                                        Belum ada pengajuan adopsi masuk dari halaman publik.
+                                    </p>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left border-collapse">
+                                            <thead>
+                                                <tr className="border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                                                    <th className="py-3 pr-4">Pemohon</th>
+                                                    <th className="py-3 px-4">Pekerjaan &amp; Penghasilan</th>
+                                                    <th className="py-3 px-4">Kecocokan AI</th>
+                                                    <th className="py-3 pl-4 text-right">Aksi</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
+                                                {cotaApplications.map((app) => {
+                                                    const pct = evaluateCotaCompatibility(app);
+                                                    return (
+                                                        <tr key={app.id} className="hover:bg-slate-50/80">
+                                                            <td className="py-3.5 pr-4">
+                                                                <span className="font-bold text-slate-900 block">{app.namaLengkap}</span>
+                                                                <span className="text-xs text-slate-500">
+                                                                    {app.usia} Thn • WA: {app.whatsapp}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3.5 px-4 text-xs text-slate-700">
+                                                                <span className="font-semibold block">{app.pekerjaanFinal || app.pekerjaan}</span>
+                                                                <span className="text-slate-500">{app.penghasilan}</span>
+                                                            </td>
+                                                            <td className="py-3.5 px-4">
+                                                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                                    {pct}% Cocok
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3.5 pl-4 text-right whitespace-nowrap space-x-2">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setSelectedCotaForAI(app)}
+                                                                    className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200 text-xs font-semibold transition-colors"
+                                                                >
+                                                                    Analisis AI
+                                                                </button>
+                                                                {app.status === 'MENUNGGU_VERIFIKASI' ? (
+                                                                    <>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleCotaDecision(app.id, 'DITERIMA')}
+                                                                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+                                                                        >
+                                                                            Terima
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleCotaDecision(app.id, 'DITOLAK')}
+                                                                            className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold"
+                                                                        >
+                                                                            Tolak
+                                                                        </button>
+                                                                    </>
+                                                                ) : (
+                                                                    <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+                                                                        {app.status}
+                                                                    </span>
+                                                                )}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleEditCota(app)}
+                                                                    className="text-slate-500 hover:text-primary p-1"
+                                                                    title="Edit"
+                                                                >
+                                                                    <PencilSquareIcon className="w-4 h-4 inline" />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleDeleteCota(app.id)}
+                                                                    className="text-slate-400 hover:text-rose-600 p-1"
+                                                                    title="Hapus"
+                                                                >
+                                                                    <TrashIcon className="w-4 h-4 inline" />
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ==================================================================== */}
                     {/* TAB 5: GALERI KEGIATAN */}
                     {/* ==================================================================== */}
                     {activeMenu === 'gallery' && (
@@ -3237,7 +3747,7 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
                                                 }}
                                                 className="text-xs text-slate-500 hover:text-slate-800"
                                             >
-                                                Tutup [X]
+                                                <XMarkIcon className="w-4 h-4" />
                                             </button>
                                         </div>
 
@@ -3484,7 +3994,7 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
                                                 }}
                                                 className="text-xs text-slate-500 hover:text-slate-800"
                                             >
-                                                Batal [X]
+                                                Batal
                                             </button>
                                         </div>
 
@@ -3693,7 +4203,7 @@ Berikan asesmen objektif, akurat secara hukum pengangkatan anak di Indonesia. Ba
                                         />
                                         <div>
                                             <span className="text-[11px] font-bold uppercase tracking-wider text-primary block">
-                                                Laporan Pertanggungjawaban Publik (PSAK 109)
+                                                Laporan Pertanggungjawaban Publik
                                             </span>
                                             <h2 className="text-lg sm:text-xl font-heading font-bold text-slate-900">
                                                 Yayasan Assholihin Candimulyo Jombang
